@@ -1,0 +1,13 @@
+﻿Debug/
+Release/
+*.o
+*.d
+*.elf
+*.map
+*.list
+*.bin
+*.hex
+*.autosave
+*.mexw64
+*.slxc
+simulink/slprj/

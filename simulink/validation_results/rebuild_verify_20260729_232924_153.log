@@ -1,0 +1,17 @@
+NUEDC SVPWM rebuild verification
+Started: 2026-07-29 23:29:24
+MATLAB: 24.2.0.2806996 (R2024b) Update 3
+Model: D:\STM32CubeIDE_1.18.1\workspace\bianliuqifuzainibian\simulink\NUEDC2026A_SVPWM.slx
+Backup: D:\STM32CubeIDE_1.18.1\workspace\bianliuqifuzainibian\simulink\NUEDC2026A_SVPWM_before_safety_update.slx
+Isolated cache root: C:\Users\Lenovo\AppData\Local\Temp\NUEDC_SVPWM_20260729_232924_153
+模型 'NUEDC2026A_23b' 已从 R2024a 导出为 R2023b。要查找在导出操作过程中删除的模块，<a href="matlab:slexportprevious.utils.displayReplacedBlocks('NUEDC2026A_23b')">请点击此处</a>。保存模型以删除此通知。
+REBUILD_OR_VERIFY: FAIL
+错误使用 modify_nuedc_svpwm>replace_notch_with_discrete (第 950 行)
+目标端口已有信号线连接
+
+出错 modify_nuedc_svpwm (第 89 行)
+replace_notch_with_discrete(mdl, 37);
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+出错 rebuild_verify_nuedc_svpwm (第 60 行)
+    modify_nuedc_svpwm;
+    ^^^^^^^^^^^^^^^^^^^

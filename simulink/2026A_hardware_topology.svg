@@ -1,0 +1,543 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1800"
+     height="1320"
+     viewBox="0 0 1800 1320"
+     role="img"
+     aria-labelledby="svgTitle svgDesc">
+  <title id="svgTitle">2026A Simulink 仿真对应的硬件功率拓扑图</title>
+  <desc id="svgDesc">单相二十四伏五十赫兹交流输入，经双电感和单相全桥有源整流器形成五十五伏直流母线，再经三相四线制四桥臂逆变器、四路电感和三相电容滤波后，为每相十二欧姆星形负载供电。</desc>
+
+  <defs>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#14213d" flood-opacity="0.10"/>
+    </filter>
+
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+
+    <g id="mosfet-v">
+      <line x1="0" y1="-55" x2="0" y2="-32" class="wire"/>
+      <rect x="-30" y="-32" width="60" height="64" rx="7" class="switch"/>
+      <line x1="0" y1="-22" x2="0" y2="22" class="symbol"/>
+      <line x1="-17" y1="-14" x2="-17" y2="14" class="symbol"/>
+      <line x1="-26" y1="0" x2="-17" y2="0" class="symbol"/>
+      <path d="M 9 13 L 19 2 L 19 13 Z" class="diode"/>
+      <line x1="8" y1="-2" x2="20" y2="-2" class="symbol"/>
+      <line x1="14" y1="-2" x2="14" y2="-15" class="symbol"/>
+      <line x1="0" y1="32" x2="0" y2="55" class="wire"/>
+    </g>
+
+    <g id="current-sensor">
+      <circle cx="0" cy="0" r="25" class="sensor"/>
+      <path d="M -12 0 H 11 M 5 -6 L 12 0 L 5 6" class="sensor-mark"/>
+    </g>
+
+    <g id="inductor-h">
+      <path d="M 0 0 H 10
+               C 10 -18, 30 -18, 30 0
+               C 30 -18, 50 -18, 50 0
+               C 50 -18, 70 -18, 70 0
+               C 70 -18, 90 -18, 90 0
+               H 100" class="wire"/>
+    </g>
+
+    <g id="capacitor-v">
+      <line x1="0" y1="-45" x2="0" y2="-9" class="wire"/>
+      <line x1="-22" y1="-9" x2="22" y2="-9" class="symbol-heavy"/>
+      <line x1="-22" y1="9" x2="22" y2="9" class="symbol-heavy"/>
+      <line x1="0" y1="9" x2="0" y2="45" class="wire"/>
+    </g>
+
+    <g id="resistor-v">
+      <line x1="0" y1="-52" x2="0" y2="-36" class="wire"/>
+      <path d="M 0 -36 L -12 -28 L 12 -16 L -12 -4 L 12 8 L -12 20 L 12 32 L 0 40"
+            class="symbol-heavy"/>
+      <line x1="0" y1="40" x2="0" y2="52" class="wire"/>
+    </g>
+
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      text {
+        font-family: "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", sans-serif;
+        fill: #172033;
+      }
+      .page {
+        fill: #f6f8fc;
+      }
+      .panel {
+        fill: #ffffff;
+        stroke: #cbd5e1;
+        stroke-width: 1.5;
+        filter: url(#shadow);
+      }
+      .panel-title {
+        font-size: 22px;
+        font-weight: 700;
+      }
+      .title {
+        font-size: 30px;
+        font-weight: 700;
+      }
+      .subtitle {
+        font-size: 16px;
+        fill: #526076;
+      }
+      .section-label {
+        font-size: 15px;
+        font-weight: 700;
+        fill: #334155;
+      }
+      .label {
+        font-size: 15px;
+      }
+      .small {
+        font-size: 13px;
+        fill: #526076;
+      }
+      .tiny {
+        font-size: 12px;
+        fill: #526076;
+      }
+      .value {
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .wire {
+        fill: none;
+        stroke: #1f2937;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .wire-thin {
+        fill: none;
+        stroke: #475569;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .dc-plus {
+        fill: none;
+        stroke: #dc2626;
+        stroke-width: 5;
+        stroke-linecap: round;
+      }
+      .dc-minus {
+        fill: none;
+        stroke: #2563eb;
+        stroke-width: 5;
+        stroke-linecap: round;
+      }
+      .phase-a {
+        fill: none;
+        stroke: #c47b00;
+        stroke-width: 4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .phase-b {
+        fill: none;
+        stroke: #16834a;
+        stroke-width: 4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .phase-c {
+        fill: none;
+        stroke: #7c3aed;
+        stroke-width: 4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .neutral {
+        fill: none;
+        stroke: #475569;
+        stroke-width: 4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .switch {
+        fill: #f8fafc;
+        stroke: #334155;
+        stroke-width: 2;
+      }
+      .symbol {
+        fill: none;
+        stroke: #334155;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .symbol-heavy {
+        fill: none;
+        stroke: #1f2937;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .diode {
+        fill: none;
+        stroke: #334155;
+        stroke-width: 1.7;
+        stroke-linejoin: round;
+      }
+      .sensor {
+        fill: #eff6ff;
+        stroke: #2563eb;
+        stroke-width: 2;
+      }
+      .sensor-mark {
+        fill: none;
+        stroke: #2563eb;
+        stroke-width: 2.3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .node {
+        fill: #172033;
+      }
+      .node-a {
+        fill: #c47b00;
+      }
+      .node-b {
+        fill: #16834a;
+      }
+      .node-c {
+        fill: #7c3aed;
+      }
+      .node-n {
+        fill: #475569;
+      }
+      .net-label {
+        fill: #eef2ff;
+        stroke: #818cf8;
+        stroke-width: 1.5;
+      }
+      .control {
+        fill: #eff6ff;
+        stroke: #93c5fd;
+        stroke-width: 1.5;
+      }
+      .control-wire {
+        fill: none;
+        stroke: #2563eb;
+        stroke-width: 2;
+        stroke-dasharray: 8 7;
+        marker-end: url(#arrow-blue);
+      }
+      .annotation {
+        fill: #f8fafc;
+        stroke: #cbd5e1;
+        stroke-width: 1.3;
+      }
+      .warning {
+        fill: #fff7ed;
+        stroke: #fdba74;
+        stroke-width: 1.5;
+      }
+      .terminal {
+        fill: #ffffff;
+        stroke-width: 3;
+      }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1320" class="page"/>
+
+  <text x="50" y="52" class="title">2026A 仿真对应的硬件功率拓扑</text>
+  <text x="50" y="82" class="subtitle">单相 PWM 有源整流 / PFC → 55 V 直流母线 → 三相四线制四桥臂逆变器 → LC 滤波与星形负载</text>
+  <text x="1750" y="52" text-anchor="end" class="small">依据：simulink/2026A.slx</text>
+  <text x="1750" y="78" text-anchor="end" class="small">功率级等效图 · 非 PCB 级原理图</text>
+
+  <!-- Top-stage panels -->
+  <rect x="35" y="112" width="690" height="455" rx="14" class="panel"/>
+  <rect x="745" y="112" width="1020" height="455" rx="14" class="panel"/>
+  <text x="60" y="145" class="panel-title">① 单相有源整流 / PFC 前级</text>
+  <text x="770" y="145" class="panel-title">② 三相四线制四桥臂逆变器</text>
+
+  <!-- Shared DC buses -->
+  <line x1="370" y1="180" x2="1680" y2="180" class="dc-plus"/>
+  <line x1="370" y1="515" x2="1680" y2="515" class="dc-minus"/>
+  <text x="1650" y="168" text-anchor="end" class="value" fill="#dc2626">DC+ ≈ 55 V</text>
+  <text x="1650" y="542" text-anchor="end" class="value" fill="#2563eb">DC−</text>
+
+  <!-- AC source -->
+  <circle cx="105" cy="352" r="48" fill="#ffffff" stroke="#334155" stroke-width="2.5"/>
+  <path d="M 75 352 C 85 327, 95 327, 105 352 C 115 377, 125 377, 135 352"
+        fill="none" stroke="#334155" stroke-width="2.5"/>
+  <line x1="105" y1="304" x2="105" y2="286" class="wire"/>
+  <line x1="105" y1="400" x2="105" y2="422" class="wire"/>
+  <text x="105" y="456" text-anchor="middle" class="value">24 V<tspan baseline-shift="sub" font-size="11">RMS</tspan> / 50 Hz</text>
+  <text x="105" y="478" text-anchor="middle" class="small">单相交流输入</text>
+
+  <!-- Input upper conductor: current sensing and L -->
+  <path d="M 105 286 H 155" class="wire"/>
+  <use xlink:href="#current-sensor" transform="translate(180 286)"/>
+  <text x="180" y="250" text-anchor="middle" class="small">I<tspan baseline-shift="sub" font-size="10">in</tspan> 采样</text>
+  <path d="M 205 286 H 230" class="wire"/>
+  <use xlink:href="#inductor-h" transform="translate(230 286)"/>
+  <path d="M 330 286 H 420 V 342" class="wire"/>
+  <text x="280" y="248" text-anchor="middle" class="value">L<tspan baseline-shift="sub" font-size="11">in1</tspan> = 0.3 mH</text>
+  <text x="280" y="267" text-anchor="middle" class="small">R = 0.05 Ω</text>
+
+  <!-- Input lower conductor and second L -->
+  <path d="M 105 422 H 230" class="wire"/>
+  <use xlink:href="#inductor-h" transform="translate(230 422)"/>
+  <path d="M 330 422 H 560 V 342" class="wire"/>
+  <text x="280" y="393" text-anchor="middle" class="value">L<tspan baseline-shift="sub" font-size="11">in2</tspan> = 0.3 mH</text>
+  <text x="280" y="447" text-anchor="middle" class="small">R = 0.05 Ω</text>
+
+  <!-- Vin measurement -->
+  <path d="M 135 304 H 150 V 400 H 135" class="wire-thin"/>
+  <circle cx="150" cy="352" r="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.8"/>
+  <text x="150" y="357" text-anchor="middle" font-size="12" font-weight="700" fill="#2563eb">V</text>
+  <text x="159" y="376" class="tiny">V<tspan baseline-shift="sub" font-size="9">in</tspan></text>
+
+  <!-- Front full bridge, two vertical half-bridge legs -->
+  <path d="M 420 180 V 195 M 420 305 V 380 M 420 490 V 515" class="wire"/>
+  <path d="M 560 180 V 195 M 560 305 V 380 M 560 490 V 515" class="wire"/>
+  <use xlink:href="#mosfet-v" transform="translate(420 250)"/>
+  <use xlink:href="#mosfet-v" transform="translate(420 435)"/>
+  <use xlink:href="#mosfet-v" transform="translate(560 250)"/>
+  <use xlink:href="#mosfet-v" transform="translate(560 435)"/>
+  <circle cx="420" cy="342" r="6" class="node"/>
+  <circle cx="560" cy="342" r="6" class="node"/>
+  <text x="382" y="255" text-anchor="end" class="value">Q1</text>
+  <text x="382" y="440" text-anchor="end" class="value">Q2</text>
+  <text x="598" y="255" class="value">Q3</text>
+  <text x="598" y="440" class="value">Q4</text>
+  <text x="490" y="212" text-anchor="middle" class="small">MOSFET + 反并联二极管</text>
+  <text x="490" y="548" text-anchor="middle" class="small">单相全桥（4 开关）</text>
+
+  <!-- DC-link capacitor and sensing -->
+  <path d="M 660 180 V 308" class="dc-plus"/>
+  <path d="M 660 388 V 515" class="dc-minus"/>
+  <use xlink:href="#capacitor-v" transform="translate(660 348)"/>
+  <text x="690" y="334" class="value">C<tspan baseline-shift="sub" font-size="11">dc</tspan> = 4 mF</text>
+  <text x="690" y="355" class="small">ESR = 0.01 Ω</text>
+  <text x="690" y="376" class="small">仿真初始值：45 V</text>
+
+  <path d="M 610 180 V 323 M 610 381 V 515" class="wire-thin"/>
+  <circle cx="610" cy="352" r="29" class="sensor"/>
+  <text x="610" y="348" text-anchor="middle" font-size="13" font-weight="700" fill="#2563eb">Vdc</text>
+  <text x="610" y="366" text-anchor="middle" font-size="11" fill="#2563eb">采样</text>
+
+  <!-- Four-leg inverter -->
+  <g aria-label="四桥臂逆变器">
+    <!-- Leg A -->
+    <path d="M 880 180 V 195 M 880 305 V 380 M 880 490 V 515" class="wire"/>
+    <use xlink:href="#mosfet-v" transform="translate(880 250)"/>
+    <use xlink:href="#mosfet-v" transform="translate(880 435)"/>
+    <circle cx="880" cy="342" r="6" class="node-a"/>
+    <path d="M 880 342 H 940" class="phase-a"/>
+    <rect x="940" y="325" width="52" height="34" rx="6" class="net-label"/>
+    <text x="966" y="347" text-anchor="middle" class="value">A0</text>
+    <text x="842" y="255" text-anchor="end" class="value">Q5</text>
+    <text x="842" y="440" text-anchor="end" class="value">Q6</text>
+
+    <!-- Leg B -->
+    <path d="M 1080 180 V 195 M 1080 305 V 380 M 1080 490 V 515" class="wire"/>
+    <use xlink:href="#mosfet-v" transform="translate(1080 250)"/>
+    <use xlink:href="#mosfet-v" transform="translate(1080 435)"/>
+    <circle cx="1080" cy="342" r="6" class="node-b"/>
+    <path d="M 1080 342 H 1140" class="phase-b"/>
+    <rect x="1140" y="325" width="52" height="34" rx="6" class="net-label"/>
+    <text x="1166" y="347" text-anchor="middle" class="value">B0</text>
+    <text x="1042" y="255" text-anchor="end" class="value">Q7</text>
+    <text x="1042" y="440" text-anchor="end" class="value">Q8</text>
+
+    <!-- Leg C -->
+    <path d="M 1280 180 V 195 M 1280 305 V 380 M 1280 490 V 515" class="wire"/>
+    <use xlink:href="#mosfet-v" transform="translate(1280 250)"/>
+    <use xlink:href="#mosfet-v" transform="translate(1280 435)"/>
+    <circle cx="1280" cy="342" r="6" class="node-c"/>
+    <path d="M 1280 342 H 1340" class="phase-c"/>
+    <rect x="1340" y="325" width="52" height="34" rx="6" class="net-label"/>
+    <text x="1366" y="347" text-anchor="middle" class="value">C0</text>
+    <text x="1242" y="255" text-anchor="end" class="value">Q9</text>
+    <text x="1242" y="440" text-anchor="end" class="value">Q10</text>
+
+    <!-- Neutral leg -->
+    <path d="M 1480 180 V 195 M 1480 305 V 380 M 1480 490 V 515" class="wire"/>
+    <use xlink:href="#mosfet-v" transform="translate(1480 250)"/>
+    <use xlink:href="#mosfet-v" transform="translate(1480 435)"/>
+    <circle cx="1480" cy="342" r="6" class="node-n"/>
+    <path d="M 1480 342 H 1540" class="neutral"/>
+    <rect x="1540" y="325" width="52" height="34" rx="6" class="net-label"/>
+    <text x="1566" y="347" text-anchor="middle" class="value">N0</text>
+    <text x="1442" y="255" text-anchor="end" class="value">Q11</text>
+    <text x="1442" y="440" text-anchor="end" class="value">Q12</text>
+  </g>
+
+  <text x="1160" y="214" text-anchor="middle" class="small">A / B / C 三个相桥臂</text>
+  <text x="1480" y="214" text-anchor="middle" class="small">独立中性桥臂</text>
+  <rect x="1605" y="245" width="130" height="138" rx="9" class="annotation"/>
+  <text x="1670" y="272" text-anchor="middle" class="section-label">逆变功率器件</text>
+  <text x="1618" y="299" class="tiny">• 8 × MOSFET</text>
+  <text x="1618" y="324" class="tiny">• 反并联二极管</text>
+  <text x="1618" y="349" class="tiny">• Ron = 1 mΩ</text>
+  <text x="1618" y="374" class="tiny">• 四桥臂独立驱动</text>
+
+  <!-- Output filter/load panel -->
+  <rect x="35" y="590" width="1730" height="535" rx="14" class="panel"/>
+  <text x="60" y="625" class="panel-title">③ 四线输出滤波、采样与星形负载</text>
+  <rect x="520" y="606" width="580" height="48" rx="8" class="annotation"/>
+  <text x="810" y="636" text-anchor="middle" class="small">采样：I<tspan baseline-shift="sub" font-size="10">A</tspan> / I<tspan baseline-shift="sub" font-size="10">B</tspan> / I<tspan baseline-shift="sub" font-size="10">C</tspan>，V<tspan baseline-shift="sub" font-size="10">A</tspan> / V<tspan baseline-shift="sub" font-size="10">B</tspan> / V<tspan baseline-shift="sub" font-size="10">C</tspan> 均相对 N → 电压/电流 QPR 双环</text>
+  <rect x="1130" y="606" width="605" height="48" rx="8" class="annotation"/>
+  <text x="1432" y="636" text-anchor="middle" class="value">输出目标：3φ4W · 20 V<tspan baseline-shift="sub" font-size="11">RMS</tspan>/相 · 50 Hz · 约 34.6 V<tspan baseline-shift="sub" font-size="11">RMS</tspan> 线电压 · 约 100 W</text>
+
+  <!-- Filter input labels -->
+  <rect x="70" y="674" width="58" height="34" rx="6" class="net-label"/>
+  <rect x="70" y="794" width="58" height="34" rx="6" class="net-label"/>
+  <rect x="70" y="914" width="58" height="34" rx="6" class="net-label"/>
+  <rect x="70" y="1034" width="58" height="34" rx="6" class="net-label"/>
+  <text x="99" y="697" text-anchor="middle" class="value">A0</text>
+  <text x="99" y="817" text-anchor="middle" class="value">B0</text>
+  <text x="99" y="937" text-anchor="middle" class="value">C0</text>
+  <text x="99" y="1057" text-anchor="middle" class="value">N0</text>
+
+  <!-- A phase filter -->
+  <path d="M 128 691 H 190" class="phase-a"/>
+  <use xlink:href="#inductor-h" transform="translate(190 691)"/>
+  <path d="M 290 691 H 345" class="phase-a"/>
+  <use xlink:href="#current-sensor" transform="translate(370 691)"/>
+  <path d="M 395 691 H 1690" class="phase-a"/>
+  <circle cx="420" cy="691" r="6" class="node-a"/>
+  <text x="240" y="663" text-anchor="middle" class="value">L<tspan baseline-shift="sub" font-size="11">A</tspan> = 0.5 mH</text>
+  <text x="240" y="716" text-anchor="middle" class="small">R = 0.05 Ω</text>
+  <text x="370" y="655" text-anchor="middle" class="small">I<tspan baseline-shift="sub" font-size="10">A</tspan></text>
+
+  <!-- B phase filter, wire bridges over A shunt branches -->
+  <path d="M 128 811 H 190" class="phase-b"/>
+  <use xlink:href="#inductor-h" transform="translate(190 811)"/>
+  <path d="M 290 811 H 345" class="phase-b"/>
+  <use xlink:href="#current-sensor" transform="translate(370 811)"/>
+  <path d="M 395 811 H 690
+           C 690 796, 710 796, 710 811
+           H 770
+           C 770 796, 790 796, 790 811
+           H 1690" class="phase-b"/>
+  <circle cx="420" cy="811" r="6" class="node-b"/>
+  <text x="240" y="783" text-anchor="middle" class="value">L<tspan baseline-shift="sub" font-size="11">B</tspan> = 0.5 mH</text>
+  <text x="240" y="836" text-anchor="middle" class="small">R = 0.05 Ω</text>
+  <text x="370" y="775" text-anchor="middle" class="small">I<tspan baseline-shift="sub" font-size="10">B</tspan></text>
+
+  <!-- C phase filter, bridges over A/B shunt branches -->
+  <path d="M 128 931 H 190" class="phase-c"/>
+  <use xlink:href="#inductor-h" transform="translate(190 931)"/>
+  <path d="M 290 931 H 345" class="phase-c"/>
+  <use xlink:href="#current-sensor" transform="translate(370 931)"/>
+  <path d="M 395 931 H 690
+           C 690 916, 710 916, 710 931
+           H 770
+           C 770 916, 790 916, 790 931
+           H 970
+           C 970 916, 990 916, 990 931
+           H 1050
+           C 1050 916, 1070 916, 1070 931
+           H 1690" class="phase-c"/>
+  <circle cx="420" cy="931" r="6" class="node-c"/>
+  <text x="240" y="903" text-anchor="middle" class="value">L<tspan baseline-shift="sub" font-size="11">C</tspan> = 0.5 mH</text>
+  <text x="240" y="956" text-anchor="middle" class="small">R = 0.05 Ω</text>
+  <text x="370" y="895" text-anchor="middle" class="small">I<tspan baseline-shift="sub" font-size="10">C</tspan></text>
+
+  <!-- Neutral filter -->
+  <path d="M 128 1051 H 190" class="neutral"/>
+  <use xlink:href="#inductor-h" transform="translate(190 1051)"/>
+  <path d="M 290 1051 H 1690" class="neutral"/>
+  <circle cx="420" cy="1051" r="6" class="node-n"/>
+  <text x="240" y="1023" text-anchor="middle" class="value">L<tspan baseline-shift="sub" font-size="11">N</tspan> = 0.5 mH</text>
+  <text x="240" y="1077" text-anchor="middle" class="small">R = 0.05 Ω</text>
+
+  <!-- Phase A capacitor and load branches -->
+  <path d="M 700 691 V 730" class="wire"/>
+  <use xlink:href="#capacitor-v" transform="translate(700 775)"/>
+  <path d="M 700 820 V 1051" class="wire"/>
+  <circle cx="700" cy="691" r="6" class="node-a"/>
+  <circle cx="700" cy="1051" r="6" class="node-n"/>
+  <text x="675" y="750" text-anchor="end" class="value">C<tspan baseline-shift="sub" font-size="11">A</tspan></text>
+  <text x="675" y="771" text-anchor="end" class="small">10 µF</text>
+
+  <path d="M 780 691 V 723" class="wire"/>
+  <use xlink:href="#resistor-v" transform="translate(780 775)"/>
+  <path d="M 780 827 V 1051" class="wire"/>
+  <circle cx="780" cy="691" r="6" class="node-a"/>
+  <circle cx="780" cy="1051" r="6" class="node-n"/>
+  <text x="805" y="750" class="value">R<tspan baseline-shift="sub" font-size="11">A</tspan></text>
+  <text x="805" y="771" class="small">12 Ω</text>
+
+  <!-- Phase B capacitor and load branches -->
+  <path d="M 980 811 V 835" class="wire"/>
+  <use xlink:href="#capacitor-v" transform="translate(980 880)"/>
+  <path d="M 980 925 V 1051" class="wire"/>
+  <circle cx="980" cy="811" r="6" class="node-b"/>
+  <circle cx="980" cy="1051" r="6" class="node-n"/>
+  <text x="955" y="852" text-anchor="end" class="value">C<tspan baseline-shift="sub" font-size="11">B</tspan></text>
+  <text x="955" y="873" text-anchor="end" class="small">10 µF</text>
+
+  <path d="M 1060 811 V 828" class="wire"/>
+  <use xlink:href="#resistor-v" transform="translate(1060 880)"/>
+  <path d="M 1060 932 V 1051" class="wire"/>
+  <circle cx="1060" cy="811" r="6" class="node-b"/>
+  <circle cx="1060" cy="1051" r="6" class="node-n"/>
+  <text x="1085" y="852" class="value">R<tspan baseline-shift="sub" font-size="11">B</tspan></text>
+  <text x="1085" y="873" class="small">12 Ω</text>
+
+  <!-- Phase C capacitor and load branches -->
+  <path d="M 1260 931 V 945" class="wire"/>
+  <use xlink:href="#capacitor-v" transform="translate(1260 990)"/>
+  <path d="M 1260 1035 V 1051" class="wire"/>
+  <circle cx="1260" cy="931" r="6" class="node-c"/>
+  <circle cx="1260" cy="1051" r="6" class="node-n"/>
+  <text x="1235" y="964" text-anchor="end" class="value">C<tspan baseline-shift="sub" font-size="11">C</tspan></text>
+  <text x="1235" y="985" text-anchor="end" class="small">10 µF</text>
+
+  <path d="M 1340 931 V 938" class="wire"/>
+  <use xlink:href="#resistor-v" transform="translate(1340 990)"/>
+  <path d="M 1340 1042 V 1051" class="wire"/>
+  <circle cx="1340" cy="931" r="6" class="node-c"/>
+  <circle cx="1340" cy="1051" r="6" class="node-n"/>
+  <text x="1365" y="964" class="value">R<tspan baseline-shift="sub" font-size="11">C</tspan></text>
+  <text x="1365" y="985" class="small">12 Ω</text>
+
+  <!-- Output terminals -->
+  <circle cx="1690" cy="691" r="8" class="terminal" stroke="#c47b00"/>
+  <circle cx="1690" cy="811" r="8" class="terminal" stroke="#16834a"/>
+  <circle cx="1690" cy="931" r="8" class="terminal" stroke="#7c3aed"/>
+  <circle cx="1690" cy="1051" r="8" class="terminal" stroke="#475569"/>
+  <text x="1712" y="697" class="value" fill="#c47b00">A</text>
+  <text x="1712" y="817" class="value" fill="#16834a">B</text>
+  <text x="1712" y="937" class="value" fill="#7c3aed">C</text>
+  <text x="1712" y="1057" class="value" fill="#475569">N</text>
+  <text x="1688" y="1090" text-anchor="end" class="small">三相四线输出端子</text>
+
+  <!-- Control overview -->
+  <rect x="35" y="1150" width="1730" height="135" rx="14" class="panel"/>
+  <rect x="60" y="1172" width="760" height="86" rx="10" class="control"/>
+  <rect x="850" y="1172" width="890" height="86" rx="10" class="control"/>
+
+  <text x="82" y="1200" class="section-label">前级控制（对应仿真）</text>
+  <text x="82" y="1227" class="label">Vdc = 55 V 外环 PI → 正弦电流给定 → 输入电流 PR 内环 → 倍频 SPWM</text>
+  <text x="82" y="1249" class="small">PR 采样 20 kHz；三角载波 10 kHz；驱动 Q1～Q4</text>
+
+  <text x="872" y="1200" class="section-label">后级控制（对应仿真）</text>
+  <text x="872" y="1227" class="label">20 V<tspan baseline-shift="sub" font-size="11">RMS</tspan> / 50 Hz 三相参考 → 电压 QPR 外环 → 电流 QPR 内环 → 四桥臂 PWM</text>
+  <text x="872" y="1249" class="small">载波 20 kHz；含零序/中性桥臂调制；驱动 Q5～Q12</text>
+
+  <path d="M 470 1172 C 470 1128, 490 1100, 490 557" class="control-wire"/>
+  <path d="M 1300 1172 C 1300 1128, 1510 1110, 1510 557" class="control-wire"/>
+
+  <rect x="470" y="1289" width="860" height="24" rx="7" class="warning"/>
+  <text x="900" y="1306" text-anchor="middle" class="tiny">
+    注意：SLX 使用理想化开关模型；实际硬件还需栅极驱动/隔离电源、死区、过流过压保护、预充电、散热、采样调理与 EMI 设计。
+  </text>
+</svg>
