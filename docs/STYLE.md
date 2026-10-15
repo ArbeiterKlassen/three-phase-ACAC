@@ -124,7 +124,7 @@ host_tests/ 验证：只依赖 App/，不依赖 HAL。
 python -m pip install clang-format
 
 # 格式化改过的文件，或整个仓库
-clang-format -i App\Src\rectifier_control.c
+clang-format -i App\Src\inverter_control.c
 clang-format -i App\Inc\*.h App\Src\*.c Core\Src\main.c Core\Src\board_runtime.c
 ```
 
