@@ -11,21 +11,53 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define BOARD_PWM_PERIOD_COUNTS       4200U
-#define BOARD_KEY_SCAN_PERIOD_MS      10U
-#define BOARD_DISPLAY_PERIOD_MS       100U
-#define BOARD_LONG_PRESS_MS           2000U
-#define BOARD_KEY_DEBOUNCE_SAMPLES    3U
-#define BOARD_FAULT_PAGE_COUNT        5U
+/*
+ * 板级运行时（Core 层）：把纯算法 App 层接到真实硬件上。
+ *
+ * 本文件是"唯一碰寄存器的地方"，三件事全在这里：
+ *   1) 20 kHz 快环：ADC DMA 半满/全满中断 → 解包 → App_FastStep20kHz()
+ *      → **延迟一拍**装载 CCR/CCER/MOE（与仿真的一周期计算延迟一致）；
+ *   2) 安全：任何故障（软件保护、BKIN/Break 回调、ADC 错误、循环超时）
+ *      都走 BoardRuntime_LatchTrip —— 硬件关 MOE + 锁存，不许自动恢复；
+ *   3) 人机：10 ms 键盘扫描、100 ms OLED 刷新、故障快照分页显示。
+ *
+ * 中断层次（谁打断谁）：ADC DMA ISR 跑控制快环（最高实时性要求）；
+ * TIM1/TIM8 Break ISR 只做关断锁存；主循环 while(1) 做按键与显示。
+ * 共享状态（s_delayed_pwm / s_trip_latched / 显示快照）都用"临界区 +
+ * __DMB()"保护，改这些变量前先看对应的 Enter/ExitCritical 用法。
+ */
+
+#define BOARD_PWM_PERIOD_COUNTS       4200U   /* ARR(4199) + 1：占空比→CCR 换算基准 */
+#define BOARD_KEY_SCAN_PERIOD_MS      10U     /* 键盘扫描周期（3 次 = 30 ms 消抖） */
+#define BOARD_DISPLAY_PERIOD_MS       100U    /* OLED 刷新周期 */
+#define BOARD_LONG_PRESS_MS           2000U   /* 长按判定：# 启动 / * 清故障 */
+#define BOARD_KEY_DEBOUNCE_SAMPLES    3U      /* 连续 3 次读到同一键才算按下 */
+#define BOARD_FAULT_PAGE_COUNT        5U      /* 输出过压故障快照的分页数（D 键翻页） */
+/*
+ * TIM8->CCR4 的 ADC 触发点（CH4 比较事件 → TRGO → ADC1 触发）。
+ * 推导：ADC 时钟 21 MHz、TIM8 168 MHz → 1 个 ADC 时钟 = 8 个 TIM 计数。
+ * 触发点安排在**载波峰值之前**，使 ADC 转换结束时刻正好落在三角波顶点
+ * （电感电流在一个开关周期里的平均值时刻）：
+ *   MODE2 只采 rank1（PA5/PC5）→ 提前 14 个 ADC 时钟 = 112 计数；
+ *   其它模式采到 rank3 → 提前 2×(28+12)+14 = 94 个 ADC 时钟 = 752 计数。
+ * 基准都是 ARR=4199：4199−112=4087、4199−752=3447。
+ */
 #define BOARD_ADC_TRIGGER_INV_COMPARE 3447U
 #define BOARD_ADC_TRIGGER_RECT_COMPARE 4087U
 
+/* TIM1 六个通道使能位（CH1/1N、CH2/2N、CH3/3N）：清它 = 六路门极全关 */
 #define BOARD_INV_CCER_MASK \
     (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | \
      TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE)
+/* TIM8 四个通道使能位（CH1/1N、CH2/2N）：整流桥两臂 */
 #define BOARD_RECT_CCER_MASK \
     (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE)
 
+/*
+ * OLED 显示用的状态快照：在主循环里先把 App 状态整块拷出来再画，
+ * 避免"画到一半被 20 kHz ISR 改写"导致数字前后矛盾（花屏/跳数）。
+ * 只放界面真正要显示的字段，不是 AppStatus 的复制品。
+ */
 typedef struct
 {
     app_mode_t mode;
@@ -46,23 +78,36 @@ typedef struct
     bool rectifier_dc_ready;
 } BoardDisplayStatus;
 
+/* ADC DMA 目标缓冲（双 ADC 交错，半满/全满各是一帧）——DMA 纯硬件写 */
 static volatile uint32_t s_adc_dma[ADC_DMA_WORD_COUNT];
+/* 帧序号：每次处理 +1，App 用它的停滞检测采样是否断了 */
 static uint32_t s_sample_sequence;
+/* 快环耗时峰值（CPU 周期，DWT 计数）。调试用：看控制环还剩多少余量 */
 static volatile uint32_t s_max_fast_cycles;
+/* 延迟一拍装载的 PWM 命令（本帧算、下帧装，与仿真延迟一致） */
 static AppPwmCommand s_delayed_pwm;
 static volatile bool s_delayed_pwm_valid;
+/* 故障锁存：置位后只有 * 长按（且 BKIN 已释放）才能清 */
 static volatile bool s_trip_latched;
 
+/* 键盘消抖状态：候选键 → 稳定键，以及长按计时 */
 static uint8_t s_key_candidate;
 static uint8_t s_key_stable;
 static uint8_t s_key_count;
 static bool s_key_long_handled;
 static uint32_t s_key_pressed_at;
+/* 后台任务的两个节拍（与 HAL_GetTick 毫秒时基比较） */
 static uint32_t s_last_key_scan;
 static uint32_t s_last_display;
+/* 故障快照显示的当前页 + 已冻结的快照副本 */
 static uint8_t s_fault_display_page;
 static AppFaultSnapshot s_fault_display_snapshot;
 
+/*
+ * 占空比（0~1）→ 定时器比较值（0~4199 = ARR）。
+ * 0/1 两端直接取极值，中间四舍五入；用 4199 而不是 4200 是因为
+ * CCR 的有效上限就是 ARR——写 4200 会永远不等，输出再也翻不回来。
+ */
 static uint32_t BoardRuntime_DutyToCompare(float duty)
 {
     if (duty <= 0.0f)
@@ -76,19 +121,30 @@ static uint32_t BoardRuntime_DutyToCompare(float duty)
     return (uint32_t)(duty * (float)(BOARD_PWM_PERIOD_COUNTS - 1U) + 0.5f);
 }
 
+/*
+ * 按模式切换 ADC 触发点（见 BOARD_ADC_TRIGGER_* 的推导注释）。
+ * 整流单跑时采样序列短，可以用更靠后的触发点；换模式必须一起换，
+ * 否则采样时刻会偏出"电感电流平均值"的位置。
+ */
 static void BoardRuntime_SelectAdcTrigger(app_mode_t mode)
 {
     /*
-     * ADC=21 MHz and TIM8=168 MHz.  In rectifier-only mode, rank 1 is
-     * PA5/PC5, so trigger 14 ADC clocks (112 TIM counts) before the
-     * carrier peak.  In inverter/full modes, retain the existing rank 3
-     * alignment: (2 * (28 + 12) + 14) ADC clocks = 752 TIM counts.
+     * ADC 时钟 21 MHz、TIM8 168 MHz（1 ADC 时钟 = 8 个 TIM 计数）。
+     * 整流单跑时只需要采 rank1（PA5/PC5），提前 14 个 ADC 时钟
+     * （112 计数）即可；逆变/全链路模式要采到 rank3，保持原有的
+     * (2×(28+12)+14) = 94 个 ADC 时钟 = 752 计数的对齐。详见文件头
+     * BOARD_ADC_TRIGGER_* 的推导。
      */
     TIM8->CCR4 = (mode == MODE2_RECTIFIER)
         ? BOARD_ADC_TRIGGER_RECT_COMPARE
         : BOARD_ADC_TRIGGER_INV_COMPARE;
 }
 
+/*
+ * 进临界区：关中断 + 内存屏障，返回进入前的 PRIMASK。
+ * __DMB() 是为了让关中断之后、外设寄存器写入之前的内存访问顺序固定，
+ * 防止编译器/总线把顺序调换后有人在"半关"状态下读到中间态。
+ */
 static uint32_t BoardRuntime_EnterCritical(void)
 {
     uint32_t primask = __get_PRIMASK();
@@ -98,6 +154,7 @@ static uint32_t BoardRuntime_EnterCritical(void)
     return primask;
 }
 
+/* 出临界区：先屏障再恢复中断（进入前是关的就不动，支持嵌套） */
 static void BoardRuntime_ExitCritical(uint32_t primask)
 {
     __DMB();
@@ -107,18 +164,21 @@ static void BoardRuntime_ExitCritical(uint32_t primask)
     }
 }
 
+/* 两路外部故障输入是否有效（PE15 = 逆变 BKIN，PA6 = 整流 BKIN，高有效） */
 static bool BoardRuntime_BreakInputActive(void)
 {
     return (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_15) == GPIO_PIN_SET)
         || (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_SET);
 }
 
+/* 两个定时器的硬件 Break 中断标志（BIF）是否已置位 */
 static bool BoardRuntime_BreakFlagSet(void)
 {
     return ((TIM1->SR & TIM_SR_BIF) != 0U)
         || ((TIM8->SR & TIM_SR_BIF) != 0U);
 }
 
+/* 是否处于"该停机"状态：软件锁存、BKIN 输入、硬件 Break 标志三者之一 */
 static bool BoardRuntime_TripPending(void)
 {
     return s_trip_latched
@@ -126,6 +186,10 @@ static bool BoardRuntime_TripPending(void)
         || BoardRuntime_BreakFlagSet();
 }
 
+/*
+ * 关逆变级：先清 MOE 再清通道使能，最后把三个 CCR 放回 50% 中性点。
+ * 顺序不能反——先清 CCER 再清 MOE，中间会有一小段"通道开着但电平不定"。
+ */
 static void BoardRuntime_DisableInverter(void)
 {
     const uint32_t neutral = BOARD_PWM_PERIOD_COUNTS / 2U;
@@ -137,6 +201,7 @@ static void BoardRuntime_DisableInverter(void)
     TIM1->CCR3 = neutral;
 }
 
+/* 关整流级：同上，两路 CCR 回中性（CH4 的 ADC 触发不受影响，照常跑） */
 static void BoardRuntime_DisableRectifier(void)
 {
     const uint32_t neutral = BOARD_PWM_PERIOD_COUNTS / 2U;
@@ -147,14 +212,21 @@ static void BoardRuntime_DisableRectifier(void)
     TIM8->CCR2 = neutral;
 }
 
+/* 两级一起关。故障路径与"未使能"路径都走它 */
 static void BoardRuntime_DisableAllPwm(void)
 {
     BoardRuntime_DisableInverter();
     BoardRuntime_DisableRectifier();
 }
 
+/*
+ * 故障锁存总入口：置锁存 → 硬件全关 → 作废待装载命令 → 通知 App 层
+ * （App_TripFromISR 记故障码、拍故障快照、进 FAULT_LATCH）。
+ * 所有故障来源（软件保护、BKIN、ADC 错误、循环超时、测量失败）都汇到这。
+ */
 static void BoardRuntime_LatchTrip(fault_flags_t fault)
 {
+    /* 上电默认"已跳闸"：解锁只能靠 * 长按，且必须 BKIN 已释放 */
     s_trip_latched = true;
     __DMB();
     BoardRuntime_DisableAllPwm();
@@ -162,6 +234,16 @@ static void BoardRuntime_LatchTrip(fault_flags_t fault)
     App_TripFromISR(fault);
 }
 
+/*
+ * 把"上一帧算出的"PWM 命令真正写进定时器。
+ *
+ * 这里是全工程最危险的一段代码，改动前先读懂：
+ *   - 最终故障检查、CCR/CCER 写入、MOE 置位必须在同一个极短临界区里：
+ *     BKIN 硬件在关中断期间仍会异步清 MOE，若在临界区外开 MOE，
+ *     可能与 Break 回调赛跑，让 DMA ISR 用旧命令把功率级重新打开；
+ *   - 每次置位后再查一遍 BIF，看到新故障就把命令作废（返回 false）；
+ *   - 返回 false 表示"本帧有跳闸"，调用方必须丢弃延迟命令。
+ */
 static bool BoardRuntime_ApplyDelayedPwm(const AppPwmCommand *command)
 {
     uint32_t primask;
@@ -197,12 +279,12 @@ static bool BoardRuntime_ApplyDelayedPwm(const AppPwmCommand *command)
     if (!trip_detected && command->rectifier_enable_request)
     {
         /*
-         * Rectifier power-stage routing:
-         *   A_HI/A_LI = TIM8 CH2/CH2N (PC7/PB0), normal polarity.
-         *   B_HI/B_LI = TIM8 CH1N/CH1 (PA7/PC6), physically swapped.
-         * TIM8 CH1 uses PWM2 so CH1N has the same carrier phase as a normal
-         * PWM1 high-side output.  Both compare registers therefore receive
-         * their logical high-side duties directly.
+         * 整流功率级接线（与 README 3.2 一致，改动前先看那张表）：
+         *   A_HI/A_LI = TIM8 CH2/CH2N (PC7/PB0)，正常极性；
+         *   B_HI/B_LI = TIM8 CH1N/CH1 (PA7/PC6)，实物高低侧是反的。
+         * TIM8 CH1 配成 PWM2 输出，使 CH1N 的载波相位与普通 PWM1 高侧
+         * 一致——所以两个比较寄存器都直接写各自逻辑高侧的占空比，
+         * 不需要在这里人为取反。配错就是上下管直通。
          */
         TIM8->CCR2 = BoardRuntime_DutyToCompare(command->rectifier_a);
         TIM8->CCR1 = BoardRuntime_DutyToCompare(command->rectifier_b);
@@ -233,6 +315,18 @@ static bool BoardRuntime_ApplyDelayedPwm(const AppPwmCommand *command)
     return !trip_detected;
 }
 
+/*
+ * 一帧 ADC 数据的完整处理：解包 → 跑一次 20 kHz 快环 → 装载延迟命令。
+ *
+ * "延迟一拍"是刻意的：本帧算出的占空比要等下一帧才写进定时器，与
+ * 仿真里的一周期计算延迟一致（见 README 与 sim_inverter.c）。第一次
+ * 进入 RUN 时 s_delayed_pwm_valid 还是 false，所以逆变 MOE 保持关闭。
+ *
+ * 结尾用 DWT 周期计数器量本帧耗时：
+ *   记录峰值供调试；一旦超过 1/20 kHz（SystemCoreClock/20000 个周期）
+ *   就判 LOOP_OVERRUN 跳闸——快环超时说明控制已经跟不上载波，
+ *   继续跑会让采样与控制错位，宁可停机。
+ */
 static void BoardRuntime_ProcessAdcFrame(const uint32_t pairs[ADC_DUAL_RANK_COUNT])
 {
     const AppPwmCommand *command;
@@ -256,6 +350,7 @@ static void BoardRuntime_ProcessAdcFrame(const uint32_t pairs[ADC_DUAL_RANK_COUN
     if ((status == NULL) || (command == NULL)
         || !status->board_config_valid || !status->pwm_allowed)
     {
+        /* 板级配置没通过校验，或状态机不允许输出 → 全关（这是"上电安全锁"的执行点） */
         BoardRuntime_DisableAllPwm();
         s_delayed_pwm_valid = false;
     }
@@ -275,10 +370,12 @@ static void BoardRuntime_ProcessAdcFrame(const uint32_t pairs[ADC_DUAL_RANK_COUN
         }
         else
         {
+            /* 还没有可用的延迟命令（刚进 RUN 的第一帧）→ 先保持全关 */
             BoardRuntime_DisableAllPwm();
         }
         if (!s_trip_latched)
         {
+            /* 本帧命令存起来，下一帧才装载（延迟一拍，见函数头说明） */
             s_delayed_pwm = *command;
             s_delayed_pwm_valid = true;
         }
@@ -291,10 +388,17 @@ static void BoardRuntime_ProcessAdcFrame(const uint32_t pairs[ADC_DUAL_RANK_COUN
     }
     if (elapsed > (SystemCoreClock / 20000U))
     {
+        /* 超过 50 us（一个 20 kHz 周期）→ 控制环已超时，跳闸停机 */
         BoardRuntime_LatchTrip(PROTECTION_FAULT_LOOP_OVERRUN);
     }
 }
 
+/*
+ * 把 DMA 缓冲里的 4 组（rank）原始双字拷进局部数组再交给控制环。
+ * 先拷贝的原因：DMA 缓冲区是硬件持续写入的，直接在里面解包可能
+ * 读到"下一帧已经覆盖了一半"的混合数据。offset = 0 表示半满，
+ * offset = ADC_DUAL_RANK_COUNT 表示全满（两个回调各走一次）。
+ */
 static void BoardRuntime_CopyAndProcessAdcFrame(uint32_t offset)
 {
     uint32_t pairs[ADC_DUAL_RANK_COUNT];
@@ -307,6 +411,14 @@ static void BoardRuntime_CopyAndProcessAdcFrame(uint32_t offset)
     BoardRuntime_ProcessAdcFrame(pairs);
 }
 
+/*
+ * 尝试清除故障锁存（* 长按调用）。只在 FAULT_LATCH 状态下有效。
+ *
+ * 顺序即安全策略：先关 PWM、作废待装载命令，再确认两路 FAULT/BKIN
+ * 输入都已释放（低电平），才清 BIF 与 NVIC 悬挂位；清完再复查一遍
+ * 输入与标志，若复位窗口里又来了新故障就放弃这次复位——宁可多按一次，
+ * 也不能在故障还在时把 MOE 挂回去。返回 true 表示确实复位成功。
+ */
 static bool BoardRuntime_TryResetFault(void)
 {
     const AppStatus *status = App_GetStatus();
@@ -346,6 +458,11 @@ static bool BoardRuntime_TryResetFault(void)
     return reset;
 }
 
+/*
+ * 切换运行模式（F0/1/2 键）。只有 OFF 或"已锁存的 FAULT"且 PWM 已关
+ * 时才允许——切模式会丢弃上一帧的 PWM 命令并把两级门极关死。
+ * 注意：切模式**不**清除故障锁存（清故障只能 * 长按）。
+ */
 static void BoardRuntime_SelectMode(app_mode_t mode)
 {
     const AppStatus *status = App_GetStatus();
@@ -362,9 +479,8 @@ static void BoardRuntime_SelectMode(app_mode_t mode)
         && !status->pwm_allowed)
     {
         /*
-         * OFF and a latched FAULT both have PWM disabled. Keep both stages
-         * quiescent while selecting a mode and discard the previous-frame
-         * PWM command. Mode selection never clears the latched fault.
+         * OFF 与已锁存的 FAULT 两种状态下 PWM 都是关的：切模式期间保持
+         * 两级静默，并丢弃上一帧的 PWM 命令。切模式永不清除故障锁存。
          */
         BoardRuntime_DisableAllPwm();
         s_delayed_pwm_valid = false;
@@ -376,6 +492,7 @@ static void BoardRuntime_SelectMode(app_mode_t mode)
     {
         if (App_RequestMode(mode))
         {
+            /* App 接受了新模式：同步切换 ADC 触发点（采样时刻要跟着模式走） */
             primask = BoardRuntime_EnterCritical();
             BoardRuntime_SelectAdcTrigger(mode);
             BoardRuntime_ExitCritical(primask);
@@ -383,6 +500,15 @@ static void BoardRuntime_SelectMode(app_mode_t mode)
     }
 }
 
+/*
+ * 短按按键处理（码值来自 key_board.c 的 4 位编码）。
+ *   0/1/2 —— 切模式（整机 AC-AC / 只逆变 / 只整流）；
+ *   A     —— 输出频率在 30/60 Hz 间切换（走 InverterControl_SetFrequency）；
+ *   B/C   —— 输出线电压 −0.1 / +0.1 V（赛题 32 V ± 0.1 V 现场微调）；
+ *   D     —— 请求停机并立即关两级门极；若正停在"输出过压"故障页，
+ *            顺便翻到快照的下一页（循环 5 页）。
+ * 其它键（含 # / *）不在短按里处理，交给长按逻辑。
+ */
 static void BoardRuntime_HandleShortKey(uint8_t key)
 {
     const AppStatus *status = App_GetStatus();
@@ -438,6 +564,16 @@ static void BoardRuntime_HandleShortKey(uint8_t key)
     }
 }
 
+/*
+ * 键盘扫描（后台 10 ms 调一次）：消抖 → 边沿触发短按 → 长按检测。
+ *
+ * 消抖：候选键连续 3 次采样不变（≈30 ms）才认作稳定键，避免抖动
+ * 造成重复触发。稳定键变化（按下沿）时立刻执行一次短按动作。
+ *
+ * 长按（≥2 s，只按键 # 和 *，且每次按下只触发一次）：
+ *   # —— 请求启动（App_RequestStart，真正能否进 RUN 由状态机与配置校验决定）
+ *   * —— 清除故障锁存（BoardRuntime_TryResetFault）
+ */
 static void BoardRuntime_ScanKeys(uint32_t now)
 {
     uint8_t raw = (uint8_t)Read_Key();
@@ -480,6 +616,7 @@ static void BoardRuntime_ScanKeys(uint32_t now)
     }
 }
 
+/* 状态枚举 → 状态名；越界返回 UNKNOWN，保证画面不会乱 */
 static const char *BoardRuntime_StateText(app_state_t state)
 {
     static const char *const names[] =
@@ -491,6 +628,7 @@ static const char *BoardRuntime_StateText(app_state_t state)
     return ((uint32_t)state < 7U) ? names[(uint32_t)state] : "UNKNOWN";
 }
 
+/* 运行模式 → 三个缩写：FULL（整机）/ INV（只逆变）/ RECT（只整流） */
 static const char *BoardRuntime_ModeText(app_mode_t mode)
 {
     if (mode == MODE0_FULL)
@@ -508,6 +646,7 @@ static const char *BoardRuntime_ModeText(app_mode_t mode)
     return "MODE?";
 }
 
+/* 逆变控制方式 → "CTRL:CL"（闭环）/ "CTRL:OL"（开环诊断） */
 static const char *BoardRuntime_ControlModeText(inverter_run_mode_t mode)
 {
     if (mode == INVERTER_CLOSED_LOOP)
@@ -521,6 +660,10 @@ static const char *BoardRuntime_ControlModeText(inverter_run_mode_t mode)
     return "CTRL:??";
 }
 
+/*
+ * 取最低位有效的故障位，返回**1 基**故障码（与 FaultText 下标、
+ * README 故障码表一一对应）。faults = 0 时返回 0 = 无故障。
+ */
 static uint32_t BoardRuntime_FirstFault(uint32_t faults)
 {
     uint32_t bit = 0U;
@@ -536,6 +679,7 @@ static uint32_t BoardRuntime_FirstFault(uint32_t faults)
     return bit + 1U;
 }
 
+/* 故障码 → OLED 显示的短名（整屏 48 行那格，长度受限） */
 static const char *BoardRuntime_FaultText(uint32_t fault_code)
 {
     static const char *const names[] =
@@ -559,6 +703,11 @@ static const char *BoardRuntime_FaultText(uint32_t fault_code)
         ? names[fault_code] : "UNKNOWN";
 }
 
+/*
+ * 浮点 → 放大后的无符号整数（显示用）。三个保险：
+ * 非有限值 → 0；取绝对值（配合调用方单独画符号位）；超过上限就钳位——
+ * 否则尺寸算错会把 OLED 写花。
+ */
 static uint32_t BoardRuntime_ScaledMagnitude(float value,
                                              float scale,
                                              uint32_t maximum)
@@ -574,6 +723,7 @@ static uint32_t BoardRuntime_ScaledMagnitude(float value,
     return (scaled > maximum) ? maximum : scaled;
 }
 
+/* 显示 ±x.xx（电流用：量程小、需要两位小数） */
 static void BoardRuntime_ShowSignedHundredths(uint8_t x,
                                               uint8_t y,
                                               float value)
@@ -587,6 +737,7 @@ static void BoardRuntime_ShowSignedHundredths(uint8_t x,
     OLED_ShowNum(x + 18U, y, scaled % 100U, 2, 8, 1);
 }
 
+/* 显示 ±xx.x（电压用：一位小数够） */
 static void BoardRuntime_ShowSignedTenths(uint8_t x,
                                          uint8_t y,
                                          float value)
@@ -600,6 +751,7 @@ static void BoardRuntime_ShowSignedTenths(uint8_t x,
     OLED_ShowNum(x + 24U, y, scaled % 10U, 1, 8, 1);
 }
 
+/* 显示 xx.x（无符号：负数/NaN 一律当 0，用于 SET/VDC 等不可能是负的量） */
 static void BoardRuntime_ShowUnsignedTenths(uint8_t x,
                                            uint8_t y,
                                            float value)
@@ -620,6 +772,7 @@ static void BoardRuntime_ShowUnsignedTenths(uint8_t x,
     OLED_ShowNum(x + 18U, y, scaled % 10U, 1, 8, 1);
 }
 
+/* 显示 x.xxx（显示母线电流比例 K = 0.533 这类小数） */
 static void BoardRuntime_ShowUnsignedThousandths(uint8_t x,
                                                  uint8_t y,
                                                  float value)
@@ -640,6 +793,7 @@ static void BoardRuntime_ShowUnsignedThousandths(uint8_t x,
     OLED_ShowNum(x + 12U, y, scaled % 1000U, 3, 8, 1);
 }
 
+/* 显示 3 位无符号整数 */
 static void BoardRuntime_ShowUnsignedInteger3(uint8_t x,
                                               uint8_t y,
                                               float value)
@@ -650,6 +804,11 @@ static void BoardRuntime_ShowUnsignedInteger3(uint8_t x,
     OLED_ShowNum(x, y, scaled, 3, 8, 1);
 }
 
+/*
+ * 用通道标定把原始码换算成物理量（物理量 = (码 − 零点) × 增益）。
+ * 与 measurement.c 同一公式——这里只是给"没有 Measurements 结构体的
+ * 故障快照原始数据"做现场换算，显示用，不参与控制。
+ */
 static float BoardRuntime_CalibrateRaw(
     const ChannelCalibration *calibration,
     uint16_t raw)
@@ -664,6 +823,10 @@ static float BoardRuntime_CalibrateRaw(
          * calibration->gain;
 }
 
+/*
+ * 从故障快照的快速历史里取"往前 lag 拍"的样本（1 = 触发前一拍）。
+ * 越界/参数非法返回 NULL，调用方按 N/A 显示。
+ */
 static const AppFaultRawSample *BoardRuntime_HistoryAtLag(
     const AppFaultSnapshot *snapshot,
     uint8_t lag)
@@ -677,6 +840,10 @@ static const AppFaultRawSample *BoardRuntime_HistoryAtLag(
         snapshot->fast_history_count - lag];
 }
 
+/*
+ * 由快照里两路线电压原始码重构三相相电压，返回三相绝对值的最大者。
+ * 相电压重构公式与 measurement.c 一致（三线制：va=(2vab+vbc)/3 等）。
+ */
 static float BoardRuntime_HistoryPhaseMax(
     const AppFaultRawSample *sample,
     const MeasurementCalibration *calibration)
@@ -707,6 +874,7 @@ static float BoardRuntime_HistoryPhaseMax(
     return (fabsf(vc) > maximum) ? fabsf(vc) : maximum;
 }
 
+/* αβ 矢量幅值 = √(α²+β²)；非有限值按 0 处理（诊断显示用） */
 static float BoardRuntime_VectorMagnitude(AlphaBeta vector)
 {
     float square = vector.alpha * vector.alpha
@@ -716,11 +884,19 @@ static float BoardRuntime_VectorMagnitude(AlphaBeta vector)
         ? sqrtf(square) : 0.0f;
 }
 
+/* 故障页统一页脚提示：D 翻页、* 长按 2 秒复位 */
 static void BoardRuntime_ShowFaultFooter(void)
 {
     OLED_ShowString(0, 56, (u8 *)"D:NEXT *2S:RST", 8, 1);
 }
 
+/*
+ * 输入过流故障页（整功能页，不分页）：
+ *   触发值 + 原始码、帧序号、上一拍的值与帧号、母线电压、当前过流阈值。
+ * "上一拍"来自快照里的 previous_iin，用来看电流是"跳变"还是"渐变"。
+ * 注意 LIM 显示的是软件阈值；若量程先撞上，画面仍会显示本页，但代码
+ * 路径实际记的是"测量无效"——排查时对照 README 已知风险 2。
+ */
 static void BoardRuntime_ShowInputOcSnapshot(
     const AppFaultSnapshot *snapshot)
 {
@@ -765,6 +941,10 @@ static void BoardRuntime_ShowInputOcSnapshot(
     OLED_ShowString(0, 56, (u8 *)"*HOLD2S RESET", 8, 1);
 }
 
+/*
+ * 输入过压故障页：结构与输入过流页相同，对象换成 Vin（TV 通道/PC5）。
+ * 同样带上一拍对照，用来区分电网浪涌与采样异常。
+ */
 static void BoardRuntime_ShowInputOvSnapshot(
     const AppFaultSnapshot *snapshot)
 {
@@ -809,6 +989,10 @@ static void BoardRuntime_ShowInputOvSnapshot(
     OLED_ShowString(0, 56, (u8 *)"*HOLD2S RESET", 8, 1);
 }
 
+/*
+ * 在 Va/Vb/Vc 里找绝对值最大的一相（真正触发输出过压判据的那相），
+ * 通过 *phase 返回相名（'A'/'B'/'C'），函数返回该相的带符号值。
+ */
 static float BoardRuntime_OutputOvTripValue(
     const AppFaultSnapshot *snapshot,
     u8 *phase)
@@ -829,6 +1013,11 @@ static float BoardRuntime_OutputOvTripValue(
     return value;
 }
 
+/*
+ * 输出过压故障页第 0 页：触发相 + 触发值 + 帧号 + 当前三相/线电压。
+ * 第 1~4 页由 BoardRuntime_ShowOutputOvPage 按 s_fault_display_page
+ * 分派（D 键翻页）。
+ */
 static void BoardRuntime_ShowOutputOvSnapshot(
     const AppFaultSnapshot *snapshot)
 {
@@ -878,6 +1067,10 @@ static void BoardRuntime_ShowOutputOvSnapshot(
     OLED_ShowString(42, 56, (u8 *)"D:NEXT *2S:RST", 8, 1);
 }
 
+/*
+ * 输出过压 · 第 1 页：触发前后 1/2/4/8/16 拍的"线电压重构相电压最大值"
+ * 与两路原始码（PC2/PC3）——用来判断故障是"一拍尖峰"还是"持续抬高"。
+ */
 static void BoardRuntime_ShowOutputOvVoltageHistory(
     const AppFaultSnapshot *snapshot)
 {
@@ -907,6 +1100,10 @@ static void BoardRuntime_ShowOutputOvVoltageHistory(
     BoardRuntime_ShowFaultFooter();
 }
 
+/*
+ * 输出过压 · 第 2 页：触发前后各拍的 Ia/Ib 历史 + 触发拍两路原始码。
+ * 过压往往先伴随电流异常（负载断开/滤波谐振），这页是判断依据。
+ */
 static void BoardRuntime_ShowOutputOvCurrentHistory(
     const AppFaultSnapshot *snapshot)
 {
@@ -929,7 +1126,7 @@ static void BoardRuntime_ShowOutputOvCurrentHistory(
             OLED_ShowString(18, y, (u8 *)"N/A", 8, 1);
             continue;
         }
-        /* PC0 is Ib and PC1 is Ia on the confirmed hardware mapping. */
+        /* 实物映射：PC0 = Ib、PC1 = Ia（与 README 第 3 节一致）。 */
         ia = BoardRuntime_CalibrateRaw(&cfg->measurement.ia,
                                        sample->pc1_raw);
         ib = BoardRuntime_CalibrateRaw(&cfg->measurement.ib,
@@ -944,6 +1141,11 @@ static void BoardRuntime_ShowOutputOvCurrentHistory(
     BoardRuntime_ShowFaultFooter();
 }
 
+/*
+ * 输出过压 · 第 3 页：故障前一拍的**控制内部量**（电压参考/实测/误差、
+ * 电流参考/实测、桥压指令、三相占空比、过调制缩放）。这一页是"控制环
+ * 当时在想什么"的唯一记录，调过压问题时先看它。
+ */
 static void BoardRuntime_ShowOutputOvControl(
     const AppFaultSnapshot *snapshot)
 {
@@ -1023,6 +1225,10 @@ static void BoardRuntime_ShowOutputOvControl(
     BoardRuntime_ShowFaultFooter();
 }
 
+/*
+ * 输出过压 · 第 4 页：按工频周期聚合的趋势（每周期最大/均值），
+ * 用于判断故障是渐进恶化还是突发——逐拍数据看不出周期级走势。
+ */
 static void BoardRuntime_ShowOutputOvCycleTrend(
     const AppFaultSnapshot *snapshot)
 {
@@ -1056,6 +1262,7 @@ static void BoardRuntime_ShowOutputOvCycleTrend(
     BoardRuntime_ShowFaultFooter();
 }
 
+/* 输出过压故障页分派：page 0~4 对应上面五个页面（D 键循环翻页） */
 static void BoardRuntime_ShowOutputOvPage(
     const AppFaultSnapshot *snapshot)
 {
@@ -1079,6 +1286,19 @@ static void BoardRuntime_ShowOutputOvPage(
     }
 }
 
+/*
+ * OLED 整屏刷新（后台 100 ms 调一次）。两类画面：
+ *
+ *  ① 故障诊断页：当快照有效且故障属于"输入过流 / 输入过压 / 输出过压"
+ *     三者之一时，整屏让给对应的诊断页并提前返回。
+ *     快照只在**帧号变化时**重新拷贝（诊断记录一旦生成就冻结），
+ *     这样 D 键翻页时看到的是同一个故障现场，不会被后续数据冲掉。
+ *  ② 常规状态页：模式/状态/频率、三相或输入电流、线电压、控制方式、
+ *     母线/输出参考、故障码、整流就绪与 PWM 门控状态、按键提示。
+ *
+ * 开头用一段短临界区把 AppStatus 整块拷进局部变量：之后画屏全程用
+ * 快照，20 kHz ISR 再怎么改状态也不会画成"上半屏新值、下半屏旧值"。
+ */
 static void BoardRuntime_RefreshDisplay(void)
 {
     BoardDisplayStatus status;
@@ -1117,6 +1337,8 @@ static void BoardRuntime_RefreshDisplay(void)
              & (PROTECTION_FAULT_INPUT_OVERCURRENT
                 | PROTECTION_FAULT_INPUT_OVERVOLTAGE
                 | PROTECTION_FAULT_OUTPUT_OVERVOLTAGE)) != 0UL);
+    /* 只在"第一次拿到快照"或"帧号变了（新故障）"时重新拷——
+     * 否则 D 键翻页期间画面会被新数据顶掉，看不到故障现场。 */
     if (diagnostic_snapshot_available
         && (!s_fault_display_snapshot.valid
             || (s_fault_display_snapshot.sample_sequence
@@ -1243,6 +1465,21 @@ static void BoardRuntime_RefreshDisplay(void)
     OLED_Refresh();
 }
 
+/*
+ * 板级上电初始化（在 main 的 MX_*_Init 之后调用一次）。
+ *
+ * 顺序与理由：
+ *   1) **先置"已跳闸"**：上电默认视为故障锁存，只有 * 长按才解锁——
+ *      这样任何上电瞬间的异常都不会让门极乱开；
+ *   2) 两级 PWM 全关 + CCR 全部回中性；
+ *   3) 打开 DWT 周期计数器（快环耗时统计用，见 ProcessAdcFrame）；
+ *   4) App_Init / 键盘 / OLED 初始化；
+ *   5) 两路定时器与 App 都就绪后，才使能 TIM BREAK 中断并检查 BKIN——
+ *      TIM1 初始化阶段不打开 BIE 就是为了避免 TIM8 句柄未就绪时进回调；
+ *   6) 启动 ADC（先从 ADC2，再 ADC1 多模式 DMA），最后先跑 TIM8、
+ *      再由 TIM1 的更新事件同步复位 TIM8 —— 两级载波同相就靠这一步。
+ * 任一步失败即 LatchTrip，绝不带着半初始化状态继续跑。
+ */
 void BoardRuntime_Init(void)
 {
     const uint32_t neutral = BOARD_PWM_PERIOD_COUNTS / 2U;
@@ -1311,6 +1548,13 @@ void BoardRuntime_Init(void)
     __HAL_TIM_ENABLE(&htim1);
 }
 
+/*
+ * 后台任务（主循环 while(1) 里调用）：
+ *   App_BackgroundTask()  —— 应用层杂务
+ *   10 ms                 —— 键盘扫描（含消抖与长按判定）
+ *   100 ms                —— OLED 刷新
+ * 控制算法**不在这里**：它在 ADC DMA 中断里跑，保证与 PWM 同步。
+ */
 void BoardRuntime_BackgroundTask(void)
 {
     uint32_t now = HAL_GetTick();
@@ -1328,6 +1572,7 @@ void BoardRuntime_BackgroundTask(void)
     }
 }
 
+/* DMA 半满中断：缓冲区前半帧（offset 0）就绪 → 处理一帧控制 */
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
     if (hadc->Instance == ADC1)
@@ -1336,6 +1581,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
     }
 }
 
+/* DMA 全满中断：缓冲区后半帧（offset = rank 数）就绪 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
     if (hadc->Instance == ADC1)
@@ -1344,6 +1590,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
     }
 }
 
+/* ADC 出错（过载/配置异常等）→ 锁存测量故障，等人工复位 */
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
 {
     if ((hadc->Instance == ADC1) || (hadc->Instance == ADC2))
@@ -1352,6 +1599,11 @@ void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
     }
 }
 
+/*
+ * 定时器 Break（BKIN）中断回调：硬件已经抢先清了 MOE，这里再走一遍
+ * 全局封锁 + 锁存，禁止 AOE 或软件自动恢复。TIM1/TIM8 任一触发都算
+ * "外部故障"（PROTECTION_FAULT_EXTERNAL）。
+ */
 void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim)
 {
     if ((htim->Instance == TIM1) || (htim->Instance == TIM8))
