@@ -37,7 +37,9 @@ void SystemClock_Config(void);
 
 int main(void)
 {
-  /* HAL 底层与节拍初始化。必须在任何外设之前。 */
+  /* HAL 底层与节拍初始化，必须在任何外设之前。
+   * 顺带把 SysTick 配成 1 kHz 毫秒节拍——board_runtime.c 的后台任务
+   * 用 HAL_GetTick() 做按键 10 ms / OLED 100 ms 定时，这就是它的时基。 */
   HAL_Init();
 
   /* 先把主频定到 168 MHz——后面所有定时器频率、死区时间、采样时序
@@ -115,6 +117,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 8;
   RCC_OscInitStruct.PLL.PLLN = 336;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  /* PLLQ 只喂 USB/SDIO/RNG 这类外设，本工程一个都不用——所以这里不必
+   * 凑 48 MHz 名值，4 只是随手取的合法值（→84 MHz）。
+   * 以后若要加 USB OTG FS，PLLQ 必须改成 7（336/7 = 48 MHz）。 */
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
