@@ -7,7 +7,7 @@
  * 三类判据的确认策略不同，别一概而论：
  *
  *   立刻判、无去抖  测量配置非法（配置错了就是错了，没什么可滤的）
- *   2 拍去抖        输入过流 / 输入过压 / 输出过压（滤单点噪声）
+ *   2 拍去抖        相过流 / 输出过压（滤单点噪声）
  *   3 拍去抖        母线过压（Vdc 分压通道在 PWM 启动瞬间有开关振铃）
  *   2000 拍（100 ms）测量无效（专门为躲开上电充电浪涌，见下方宏注释）
  *
@@ -20,14 +20,12 @@
 #include <math.h>
 #include <stddef.h>
 
-#define PROTECTION_INPUT_OC_CONFIRM_SAMPLES (2U)
-#define PROTECTION_INPUT_OV_CONFIRM_SAMPLES (2U)
 #define PROTECTION_OUTPUT_OV_CONFIRM_SAMPLES (2U)
 /*
  * 测量无效原来 2 拍（100 us）即锁存，上电时会被充电浪涌误触发：
- * 母线电容经整流二极管充电，浪涌电流远超 TA 量程（±5.9 A 对应原始码
- * 64..4031），采样被判"量程超限、测量无效"，两点之后系统在母线还没
- * 充起来时就已经 FAULT_LATCH —— 表现为"整流级上电毫无输出"。
+ * 外部直流源接上的瞬间，母线电容充电浪涌会远超电流通道量程（TA 可测
+ * ±5.9 A 对应原始码 64..4031），采样被判"量程超限、测量无效"，
+ * 两点之后系统在母线还没充起来时就已经 FAULT_LATCH。
  *
  * 该浪涌持续不到 1 ms（τ = R_loop·C_bus 量级），而真正的传感器断线、
  * 掉电或 ADC 故障会一直无效。因此把确认窗口放宽到 100 ms：暂态过后
@@ -49,11 +47,9 @@
  * 后面所有判据都不可信，没有继续跑的道理。
  */
 static bool Protection_ConfigValid(const ProtectionConfig *cfg) {
-    return (cfg != NULL) && isfinite(cfg->input_current_abs_max_a) && isfinite(cfg->phase_current_abs_max_a) &&
-           isfinite(cfg->input_voltage_abs_max_v) && isfinite(cfg->dc_voltage_min_run_v) &&
+    return (cfg != NULL) && isfinite(cfg->phase_current_abs_max_a) && isfinite(cfg->dc_voltage_min_run_v) &&
            isfinite(cfg->dc_voltage_max_v) && isfinite(cfg->output_voltage_abs_max_v) &&
-           (cfg->input_current_abs_max_a > 0.0f) && (cfg->phase_current_abs_max_a > 0.0f) &&
-           (cfg->input_voltage_abs_max_v > 0.0f) && (cfg->dc_voltage_min_run_v >= 0.0f) &&
+           (cfg->phase_current_abs_max_a > 0.0f) && (cfg->dc_voltage_min_run_v >= 0.0f) &&
            (cfg->dc_voltage_max_v > cfg->dc_voltage_min_run_v) && (cfg->output_voltage_abs_max_v > 0.0f) &&
            (cfg->stale_limit_samples > 0U);
 }
@@ -64,8 +60,8 @@ static bool Protection_ConfigValid(const ProtectionConfig *cfg) {
  * 越界会直接让 measurement->valid 变假，走到这里就是"无效"这条路径。
  */
 static bool Protection_MeasurementFinite(const Measurements *m) {
-    return (m != NULL) && m->valid && isfinite(m->iin) && isfinite(m->vin) && isfinite(m->ia) && isfinite(m->ib) &&
-           isfinite(m->ic) && isfinite(m->va) && isfinite(m->vb) && isfinite(m->vc) && isfinite(m->vdc);
+    return (m != NULL) && m->valid && isfinite(m->ia) && isfinite(m->ib) && isfinite(m->ic) && isfinite(m->va) &&
+           isfinite(m->vb) && isfinite(m->vc) && isfinite(m->vdc);
 }
 
 /* 全部状态清零。NULL 安全 */
@@ -84,8 +80,8 @@ void Protection_Init(Protection *protection) {
  * 返回本周期活动故障掩码，并**同时累加进 latched_faults**。
  * latched_faults 不会被本函数清除；protection 为 NULL 时返回 CONTROL 故障。
  *
- * run_expected 只影响母线欠压判据：整流单级从低压被动母线起升时，
- * 母线本来就低，不该按逆变侧的运行下限去报欠压。
+ * run_expected 只影响母线欠压判据：只有 RUN 期间才检查母线是否掉到
+ * 运行下限以下（起机/停机过程中母线本来就可能低）。
  */
 uint32_t Protection_Evaluate(Protection *protection, const ProtectionConfig *cfg, const Measurements *measurement,
                              bool run_expected, bool external_fault, bool loop_overrun) {
@@ -94,13 +90,9 @@ uint32_t Protection_Evaluate(Protection *protection, const ProtectionConfig *cfg
     if (protection == NULL) return PROTECTION_FAULT_CONTROL;
     if (!Protection_ConfigValid(cfg)) {
         protection->measurement_invalid_count = 0U;
-        protection->input_oc_count = 0U;
-        protection->input_ov_count = 0U;
         protection->output_ov_count = 0U;
         faults |= PROTECTION_FAULT_MEASUREMENT;
     } else if (!Protection_MeasurementFinite(measurement)) {
-        protection->input_oc_count = 0U;
-        protection->input_ov_count = 0U;
         protection->output_ov_count = 0U;
         if (protection->measurement_invalid_count < PROTECTION_MEASUREMENT_CONFIRM_SAMPLES)
             protection->measurement_invalid_count++;
@@ -121,24 +113,10 @@ uint32_t Protection_Evaluate(Protection *protection, const ProtectionConfig *cfg
         }
 
         if (protection->stale_count >= cfg->stale_limit_samples) faults |= PROTECTION_FAULT_SAMPLE_STALE;
-        if (fabsf(measurement->iin) > cfg->input_current_abs_max_a) {
-            if (protection->input_oc_count < PROTECTION_INPUT_OC_CONFIRM_SAMPLES) protection->input_oc_count++;
-            if (protection->input_oc_count >= PROTECTION_INPUT_OC_CONFIRM_SAMPLES)
-                faults |= PROTECTION_FAULT_INPUT_OVERCURRENT;
-        } else {
-            protection->input_oc_count = 0U;
-        }
         if ((fabsf(measurement->ia) > cfg->phase_current_abs_max_a) ||
             (fabsf(measurement->ib) > cfg->phase_current_abs_max_a) ||
             (fabsf(measurement->ic) > cfg->phase_current_abs_max_a)) {
             faults |= PROTECTION_FAULT_PHASE_OVERCURRENT;
-        }
-        if (fabsf(measurement->vin) > cfg->input_voltage_abs_max_v) {
-            if (protection->input_ov_count < PROTECTION_INPUT_OV_CONFIRM_SAMPLES) protection->input_ov_count++;
-            if (protection->input_ov_count >= PROTECTION_INPUT_OV_CONFIRM_SAMPLES)
-                faults |= PROTECTION_FAULT_INPUT_OVERVOLTAGE;
-        } else {
-            protection->input_ov_count = 0U;
         }
         if (measurement->vdc > cfg->dc_voltage_max_v) {
             if (protection->dc_ov_count < PROTECTION_DC_OV_CONFIRM_SAMPLES) protection->dc_ov_count++;
@@ -195,8 +173,6 @@ bool Protection_ClearLatched(Protection *protection) {
 
     protection->latched_faults = PROTECTION_FAULT_NONE;
     protection->measurement_invalid_count = 0U;
-    protection->input_oc_count = 0U;
-    protection->input_ov_count = 0U;
     protection->output_ov_count = 0U;
     protection->dc_ov_count = 0U;
     return true;

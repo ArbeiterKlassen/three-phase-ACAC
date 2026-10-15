@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- * 软件保护：判据、确认窗口与故障锁存。
+ * 软件保护：判据、确认窗口与故障锁存（三相逆变工程）。
  *
  * 硬件 Break 由定时器直接清 MOE，不经这里；本模块负责软件侧判据
  * （测量有效性、采样新鲜度、电流电压阈值）以及"故障后必须人工确认"
@@ -15,23 +15,18 @@ enum {
     PROTECTION_FAULT_NONE = 0UL,
     PROTECTION_FAULT_MEASUREMENT = 1UL << 0,        // 解码失败/标定超限，持续 100 ms 才锁存
     PROTECTION_FAULT_SAMPLE_STALE = 1UL << 1,       // 采样序号停滞，控制环在吃旧帧
-    PROTECTION_FAULT_INPUT_OVERCURRENT = 1UL << 2,  // 输入电流绝对值超阈值
-    PROTECTION_FAULT_PHASE_OVERCURRENT = 1UL << 3,  // 任一相电流绝对值超阈值
-    PROTECTION_FAULT_INPUT_OVERVOLTAGE = 1UL << 4,  // 输入电压绝对值超阈值
-    PROTECTION_FAULT_DC_OVERVOLTAGE = 1UL << 5,     // 母线过压，连续 3 拍确认
-    PROTECTION_FAULT_DC_UNDERVOLTAGE = 1UL << 6,    // 运行中母线欠压
-    PROTECTION_FAULT_OUTPUT_OVERVOLTAGE = 1UL << 7, // 重构相电压超阈值
-    PROTECTION_FAULT_EXTERNAL = 1UL << 8,           // BKIN / 驱动 / 板级故障
-    PROTECTION_FAULT_LOOP_OVERRUN = 1UL << 9,       // 20 kHz 快环超过 50 us
-    PROTECTION_FAULT_CONTROL = 1UL << 10,           // 控制器参数或数值计算失败
-    PROTECTION_FAULT_DC_MISMATCH = 1UL << 11        // 母线设定与实测差异过大
+    PROTECTION_FAULT_PHASE_OVERCURRENT = 1UL << 2,  // 任一相电流绝对值超阈值
+    PROTECTION_FAULT_DC_OVERVOLTAGE = 1UL << 3,     // 母线过压，连续 3 拍确认
+    PROTECTION_FAULT_DC_UNDERVOLTAGE = 1UL << 4,    // 运行中母线欠压
+    PROTECTION_FAULT_OUTPUT_OVERVOLTAGE = 1UL << 5, // 重构相电压超阈值
+    PROTECTION_FAULT_EXTERNAL = 1UL << 6,           // BKIN / 驱动 / 板级故障
+    PROTECTION_FAULT_LOOP_OVERRUN = 1UL << 7,       // 20 kHz 快环超过 50 us
+    PROTECTION_FAULT_CONTROL = 1UL << 8             // 控制器参数或数值计算失败
 };
 
 /* 判据阈值。全部来自 app_config.c，改动前先读那里的来历注释。 */
 typedef struct {
-    float input_current_abs_max_a;  // 输入电流绝对值上限 [A]
     float phase_current_abs_max_a;  // 相电流绝对值上限 [A]
-    float input_voltage_abs_max_v;  // 输入电压绝对值上限 [V]
     float dc_voltage_min_run_v;     // 运行中母线欠压阈值 [V]
     float dc_voltage_max_v;         // 母线过压阈值 [V]
     float output_voltage_abs_max_v; // 重构相电压绝对值上限 [V]
@@ -45,8 +40,6 @@ typedef struct {
     uint32_t last_sequence;             // 上一帧采样序号，用于检测停滞
     uint16_t stale_count;               // 连续重复帧计数
     uint16_t measurement_invalid_count; // 连续无效帧计数，窗口 2000 拍（100 ms）
-    uint8_t input_oc_count;             // 输入过流去抖计数，2 拍确认
-    uint8_t input_ov_count;             // 输入过压去抖计数，2 拍确认
     uint8_t output_ov_count;            // 输出过压去抖计数，2 拍确认
     uint8_t dc_ov_count;                // 母线过压去抖计数，3 拍确认
     bool sequence_seen;                 // 是否已收到过第一帧

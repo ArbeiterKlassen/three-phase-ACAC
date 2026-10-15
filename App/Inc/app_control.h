@@ -1,7 +1,8 @@
 #pragma once
 
 /*
- * 应用层门面：三模式调度、20 kHz 快环，以及对 Core 板级层公开的单例接口。
+ * 应用层门面：20 kHz 快环，以及对 Core 板级层公开的单例接口。
+ * 本工程只做三相逆变（DCAC），没有模式概念。
  *
  * 两种用法：
  *   多实例（AppControl_*）—— 纯 C、不依赖 HAL，host_tests 用这套
@@ -9,7 +10,7 @@
  *
  * 一次快环（App_FastStep20kHz）的固定顺序：
  *     提交采样 → 换算物理量 → 保护判断 → 状态机
- *       → 按模式跑逆变/整流控制 → 归一化占空比
+ *       → 跑逆变双闭环 → 归一化占空比
  *     → 延迟一拍写 CCR/CCER/MOE（避开比较值更新瞬间的毛刺）
  *     → 发布状态快照
  *
@@ -35,55 +36,33 @@ typedef struct {
     bool active;                                                  // 是否正在记录
 } AppFaultRecorder;
 
-/* 控制实例。持有逆变、整流、保护、状态机四块状态与各自的配置绑定。 */
+/* 控制实例。持有逆变、保护、状态机三块状态与配置绑定。 */
 typedef struct {
     InverterControl inverter;              // 逆变控制
-    RectifierControl rectifier;            // 整流控制
     Protection protection;                 // 保护
     PowerStateMachine state;               // 电源状态机
-    const BoardPowerConfig *cfg;           // 当前配置
-    const BoardPowerConfig *validated_cfg; // 上一次校验通过的配置指针
-    app_mode_t mode;                       // 当前模式
-    app_mode_t validated_mode;             // 上一次校验通过的模式
+    const BoardPowerConfig *cfg;           // 当前配置（每拍都会重新校验一次）
     inverter_run_mode_t inverter_run_mode; // 闭环/开环
     AppFaultSnapshot fault_snapshot;       // 故障快照
     AppFaultRecorder fault_recorder;       // 故障记录器
-    uint32_t previous_iin_sequence;        // 上一次输入电流有效的帧号
-    uint32_t previous_vin_sequence;        // 上一次输入电压有效的帧号
-    uint16_t mode0_dc_ready_count;         // MODE0 母线就绪连续计数
-    uint16_t previous_iin_raw;             // 上一次输入电流原始码
-    uint16_t previous_vin_raw;             // 上一次输入电压原始码
-    uint8_t rectifier_start_count;         // 整流启动过零确认计数
-    float previous_iin_a;                  // 上一次输入电流 [A]
-    float previous_vin_v;                  // 上一次输入电压 [V]
-    bool mode0_inverter_ready;             // MODE0 母线是否已就绪
-    bool rectifier_dc_ready;               // 整流级母线是否就绪
-    bool rectifier_start_ready;            // 整流级是否满足启动条件
-    bool previous_iin_valid;               // 上一次输入电流是否有效
-    bool previous_vin_valid;               // 上一次输入电压是否有效
     bool board_config_valid;               // 板级参数是否通过校验
     bool initialized;                      // 是否已成功初始化
 } AppControl;
 
-// 初始化控制实例：逆变 + 保护 + 状态机，并尝试初始化整流
-// 默认 MODE1_INVERTER、状态 OFF；**本函数不使能 PWM**
-// 整流参数无效不会连带破坏 MODE1；MODE0/MODE2 仍会被模式校验锁止
+// 初始化控制实例：逆变 + 保护 + 状态机
+// 上电状态 OFF；**本函数不使能 PWM**
 bool AppControl_Init(AppControl *app);
 
 // 复位控制器动态状态、保护记录与状态机；运行模式和板级配置保持不变
 // NULL 或未初始化实例安全
 void AppControl_Reset(AppControl *app);
 
-// 选模式。只在 OFF（或 PWM 已关闭的 FAULT_LATCH）允许
-// 注意：FAULT_LATCH 下切模式**不会**清除锁存故障，也不会启动 PWM
-bool AppControl_SetMode(AppControl *app, app_mode_t mode);
-
 // 选闭环或诊断开环。只在 PWM 已关闭的 OFF / FAULT_LATCH 允许
 // 切换成功会复位电压斜坡与四个 QPR 状态
 bool AppControl_SetInverterRunMode(AppControl *app, inverter_run_mode_t mode);
 
 // 执行一次完整控制计算。典型周期 20 kHz
-// 流程：换算 → 保护 → 状态机 → 按模式控制 → 生成 PWM 命令
+// 流程：换算 → 保护 → 状态机 → 逆变双闭环 → 生成 PWM 命令
 // 未获准运行时输出 0.5 中性占空比并撤销使能请求
 // 返回参数与实例有效；控制环失败通过故障位与安全输出上报，不靠返回值
 bool AppControl_Step(AppControl *app, const AdcRawFrame *raw, const AppCommand *command, AppOutput *out);
@@ -92,10 +71,6 @@ bool AppControl_Step(AppControl *app, const AdcRawFrame *raw, const AppCommand *
 
 // 初始化全局单例。默认参考值、状态 OFF、所有 PWM 输出保持安全中性值
 void App_Init(void);
-
-// 选全局模式。要求：已初始化、无启动请求、mode 合法、处于 OFF 或 PWM 已关的 FAULT_LATCH
-// 运行或放电过程中不能切模式；故障下切换不会清故障
-bool App_RequestMode(app_mode_t mode);
 
 // 选全局逆变环路方式，只在 PWM 安全关闭时允许
 // 一旦已提交启动请求，选择会被拒绝
@@ -111,9 +86,8 @@ void App_RequestStop(void);
 
 // 提交一帧双 ADC 同步模式的 CDR 打包采样
 // adc_cdr_pairs 每项低 16 位为 ADC1、高 16 位为 ADC2，
-// 固定 rank 映射依次为：Iin/Vin、Ib/Ia、Vab/Vbc、Vdc/Vin诊断
+// 本工程只取 rank2（Ib/Ia）与 rank3（Vab/Vbc），其余 Rank 忽略
 // sequence 为 DMA 完整帧单调序号，用于检测陈旧或重复帧
-// 三种模式用到的通道不同，见 measurement.h 的三个解包函数
 bool App_ApplyAdcPairs(const uint32_t adc_cdr_pairs[4], uint32_t sequence);
 
 // 以八个独立 16 位采样值提交一帧（按 ADC1 r0、ADC2 r0 … ADC1 r3、ADC2 r3 交错）
@@ -149,16 +123,10 @@ bool App_SetOutputLineVoltageReference(float line_rms);
 
 // 设置母线目标 [V]，允许 30~65 V
 // 要求已初始化、处于无启动请求的 OFF，或 PWM 已禁止的 FAULT_LATCH
-// 注意：输出参考**已与母线解耦**，本函数只改母线目标，不再联动输出参考
-// MODE1 逆变单测继续用该设定值代替未接入的 Vdc；MODE0/MODE2 用实测 Vdc
+// 注意：输出参考**已与母线解耦**，本函数只改母线目标，不再联动输出参考；
+// 该设定值同时充当调制分母（PC4 母线采样未接入，见 app_control.c 说明）
 bool App_SetDcVoltageReference(float volts);
 
 // 请求清除锁存故障并保持停机
 // 清除动作在后续快环处理；只有活动故障已消失时才真正解锁
 void App_ResetFault(void);
-
-// 更新板级预充完成联锁。MODE1 内部视为已完成；MODE0/MODE2 真实使用
-void App_SetPrechargeDone(bool done);
-
-// 更新板级相位/同步就绪联锁。MODE1 内部视为已就绪；MODE0/MODE2 真实使用
-void App_SetPhaseReady(bool ready);

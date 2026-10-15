@@ -30,18 +30,17 @@
  *     归一化占空比 0~1、原始采样 [ADC 码 0~4095]。
  *
  * 改动纪律（按顺序，一步都别跳）：
- *   ① 改完先跑 host_tests\run_tests.ps1（30 项离线回归）；
- *   ② 再跑 host_tests\sim_inverter.c 与 sim_rectifier.c，与 README 的
- *      验证数字逐字比对（DCAC 稳态 45.20 V 峰值、ACDC 母线 62.08 V）；
+ *   ① 改完先跑 host_tests\run_tests.ps1（离线回归）；
+ *   ② 再跑 host_tests\sim_inverter.c，与 README 的验证数字逐字比对
+ *      （DCAC 稳态 45.20 V 峰值）；
  *   ③ 最后才上板：先空载、再低压、最后满压。
  *
  * 写这张表的前提（硬件哥已确认，未推翻前不用再问）：
- *   1) Iin 与 Ia 用同型 TA 模块、Vin 与 Vab 用同型 TV 模块 → 标定可
- *      直接复用（见 .measurement 各通道注释）；
- *   2) 功率级与栅极驱动关断路径按 README 第 3 节逐脚核对过；
- *   3) 死区实测 1.000 us（tim.c 里 DTG=148，168 MHz 下 168 个 tDTS）。
- * 注意：模式校验（本文件下半部分）仍会逐项检查复用后的可测量程是否
- * 盖得住控制上限和过流阈值——"复用"不等于"不检查"。
+ *   1) 功率级与栅极驱动关断路径按 README 第 3 节逐脚核对过；
+ *   2) 死区实测 1.000 us（tim.c 里 DTG=148，168 MHz 下 168 个 tDTS）；
+ *   3) 母线由外部直流电源提供，PC4 母线采样未接入（见 app_control.c 说明）。
+ * 注意：校验函数仍会逐项检查可测量程是否盖得住控制上限与保护阈值——
+ * "标定过了"不等于"不用检查"。
  */
 const BoardPowerConfig g_board_power_config = {
     /*
@@ -49,9 +48,8 @@ const BoardPowerConfig g_board_power_config = {
      * 它们只是入场券：下面每个具体参数仍会被校验函数逐条检查，
      * 所以这里的 true 不是"跳过校验"的后门（见 app_config.h）。
      */
-    .config_valid = true,                /* 总开关：false → 任何模式都进不了 RUN */
-    .adc_calibrated = true,              /* 三相通道 Ia/Ib/Vab/Vbc/Vdc 已实测标定 */
-    .rectifier_adc_calibrated = true,    /* 整流通道 Iin/Vin 已按"同型复用"确认 */
+    .config_valid = true,                /* 总开关：false → 进不了 RUN */
+    .adc_calibrated = true,              /* 采样通道 Ia/Ib/Vab/Vbc/Vdc 已实测标定 */
     .gate_driver_pins_valid = true,      /* 驱动引脚与 README 第 3 节逐脚一致 */
     .power_stage_valid = true,           /* 功率级（桥式拓扑、母线电容）确认 */
     .deadtime_valid = true,              /* 死区已实测：1.000 us（tim.c DTG=148） */
@@ -69,23 +67,16 @@ const BoardPowerConfig g_board_power_config = {
     .output_line_voltage_rms = APP_INVERTER_OUTPUT_LINE_RMS_DEFAULT_V,
     /*
      * 母线目标 [V]。
-     * 来历：41 V 输入峰值 58 V 时升压调制比 m = 58/62 = 0.935，仍低于
-     *       0.96 占空比限幅；若用 60 V 母线，41 V 输入会撞限幅失控
-     *       （推导见 app_config.h 顶部）。ACDC 闭环仿真稳态 62.08 V ✓。
+     * 来历：沿用整机工程的 62 V——给三相桥留出足够调制裕量：
+     *       额定线电压 32 Vrms（峰值 45.25 V）时调制跨度只用掉 0.76，
+     *       母线掉到 ~48 V 仍能维持输出；同时 62 V 对应 0.96 占空比
+     *       区间内的最大线电压约 59.5 V，不会顶到限幅。
      * 风险：抬高母线**不会**抬高输出目标（两者已解耦）；但超过 65 V
      *       会被校验直接拒绝（> APP_INVERTER_DC_VOLTAGE_MAX_V）。
      */
     .dc_voltage_ref = APP_INVERTER_DC_VOLTAGE_DEFAULT_V,
     /*
-     * 两次 Vin 采样（PC5 在 ADC1、ADC2 各采一次）允许的最大码差。
-     * 来历：9 码 ≈ 0.465 V（按 TV 标定 0.0517 V/码）；给两路采样开关
-     *       时序差 + ADC 噪声留余量。MODE0 用它做冗余校验，超差即判
-     *       测量故障（PROTECTION_FAULT_MEASUREMENT，故障码 1）。
-     * 风险：调到 1~2 码会在正常噪声下频繁误报；调得太大则失去诊断意义。
-     */
-    .vin_diagnostic_tolerance_counts = 9U,
-    /*
-     * ══ 七路 ADC 标定 ═══════════════════════════════════════════════════
+     * ══ ADC 通道标定 ════════════════════════════════════════════════════
      * 统一换算：物理量 = (原始码 − offset_count) × gain
      *   offset_count —— "零物理量"对应的 ADC 码（实测点拟合值）
      *   gain         —— 每码代表的物理量
@@ -98,38 +89,13 @@ const BoardPowerConfig g_board_power_config = {
      * 通道重标（offset/gain/窗口一起改），并同步复核 .protection 阈值。
      */
     .measurement =
-        {/*
-         * 整流输入电流 Iin [A]（TA 同型通道）。
-         * 来历：Iin 与已标定的 Ia 是同型 TA 模块（硬件已确认），复用其
-         *       实测偏置/增益；折算可测量程 −5.90 … +5.68 A。
-         * 风险：单通道复标只需替换本项，但别只改 gain 不改窗口——
-         *       校验函数算量程用的就是 offset/gain/raw_min/max 四项。
-         */
-         .iin =
-             {
-                 .offset_count = 2084.7273f, /* 零点 [码]：两个实测点 + 零点约束最小二乘 */
-                 .gain = 0.002919044f,       /* 灵敏度 [A/码]：折合前端 ≈ 0.276 V/A */
-                 .raw_min = 64U,             /* 窗口下限：避开 ADC 轨底 ~1.5% 非线性区 */
-                 .raw_max = 4031U            /* 窗口上限：避开 ADC 轨顶 ~1.5% 非线性区 */
-             },
-         /*
-         * 整流输入电压 Vin [V]（TV 同型通道）。
-         * 来历：Vin 与已标定的 Vab 是同型 TV 模块（硬件已确认），复用其
-         *       实测偏置/增益；折算可测量程 −105.7 … +99.3 V。
-         * 用途扩展：MODE0 下 PC5 被采两次，第二次当诊断冗余（见
-         *       vin_diagnostic_tolerance_counts）。
-         */
-         .vin = {.offset_count = 2109.5455f, /* 零点 [码] */
-                 .gain = 0.051657744f,       /* 灵敏度 [V/码]：前端 15.6 mV/V（分压比 1/64） */
-                 .raw_min = 64U,             /* 同 TA：避开 ADC 两端非线性区 */
-                 .raw_max = 4031U},
-         /*
+        {                                   /*
          * 三相电流 Ia / Ib [A]（TA 通道）。
          * 来历：两个实测量点 + "零点必对应零电流"约束，做零点约束最小
          *       二乘，拟合出 offset = 2084.7273 码、gain = 0.002919044
          *       A/码；折算可测量程 −5.90 … +5.68 A。
-         * 连带影响：整流输入电流沿用同一量程，所以"输入 3.8 A RMS 余量
-         *       只剩约 6%"说的就是这个窗口（见 .rectifier 注释）。
+         * 说明：这个量程同时决定相电流保护阈值（.protection）的取值，
+         *       改标定要一起复核，别只改 gain。
          */
          .ia = {.offset_count = 2084.7273f, /* 零点 [码] */
                 .gain = 0.002919044f,       /* 灵敏度 [A/码] */
@@ -178,9 +144,8 @@ const BoardPowerConfig g_board_power_config = {
     .inverter =
         {/*
          * 快环周期 [s]：20 kHz 中心对齐 PWM（tim.c ARR=4199）。
-         * 改这里等于换整个控制频率：QPR 系数、相位步长、RMS 窗口、
-         * 死区占比全部跟着变——没有重新整定过就别动。MODE0 校验还要求
-         * 逆变/整流两级 sample_time 完全相等（共用 ADC 触发的前提）。
+         * 改这里等于换整个控制频率：QPR 系数、相位步长、死区占比全部
+         * 跟着变，还要同步改 tim.c 里的 ARR——没有重新整定过就别动。
          */
          .sample_time_s = 50.0e-6f,
          /*
@@ -266,120 +231,16 @@ const BoardPowerConfig g_board_power_config = {
          .duty_min = 0.02f,
          .duty_max = 0.98f},
     /*
-     * ══ 单相整流级（ACDC）═══════════════════════════════════════════════
-     * 结构：母线电压 PI（1 kHz + 100 Hz 陷波）→ 输入电流 QPR（20 kHz）
-     *       → 单极性 SPWM（rectifier_pwm.c）。见 rectifier_control.h。
-     * 方向约定：只允许 AC→DC（PI 输出下限固定 0 A + current_reference_sign
-     *       = +1）；这也是校验函数强制 current_reference_sign ≥ 0.5 的原因。
+     * ══ 保护阈值 ════════════════════════════════════════════════════════
+     * 全部是"绝对值上限"：相电流、母线电压、输出相电压。
+     * 取值都要同时满足两条：① 比额定工况留出余量（不能正常满载就跳）；
+     * ② 落在采样通道可测范围内（超量程会先被判"测量无效"）。
      */
-    .rectifier =
-        {/* 快环周期 [s]：同逆变级 20 kHz；MODE0 校验要求与逆变严格相等 */
-         .sample_time_s = 50.0e-6f,
-         /*
-         * 输入交流频率 [Hz]（现场为 50 Hz 市电/信号源）。
-         * 它决定两件事：① 输入 RMS 滑动窗长度 = 400 点 = 20 ms = 一个
-         * 周期（RECTIFIER_VIN_RMS_WINDOW_SAMPLES）；② 100 Hz 陷波中心
-         * 频率 = 2×50。改成 60 Hz 要同步改窗口长度与陷波中心，别只改这里。
-         */
-         .line_frequency_hz = 50.0f,
-         /*
-         * 外环分频：每 20 拍跑一次母线 PI + 陷波 → 1 kHz（20 kHz/20）。
-         * 电流内环仍每拍 20 kHz 跑（rectifier_control.c 用
-         * sample_time_s × outer_loop_divider 作外环离散周期）。
-         * 改它等于改外环带宽，PI 需要重新整定。
-         */
-         .outer_loop_divider = 20U,
-         /*
-         * **保留字段（当前实现不读它）**：输入 RMS 用的是
-         * rectifier_control.h 里 RECTIFIER_VIN_RMS_WINDOW_SAMPLES = 400
-         * 的滑动窗口，与这个时间常数无关。校验仍要求 > 0，别填 0；
-         * 也不要以为改它会影响 RMS 响应速度。
-         */
-         .rms_filter_time_constant_s = 0.05f,
-         /*
-         * 输入就绪下限 [V]：Vin 的 400 点 RMS < 10 V 时稳态控制器拒绝
-         * 工作（Step 返回失败），防止空载/噪声下误起机。
-         * 起机时机另有开关：app_control.c 的
-         * APP_RECTIFIER_START_VIN_RMS_FRACTION = 0.10——等 vin 瞬时值
-         * 落到 RMS 的 ±10% 内（过零点附近）才开管，避开合闸冲击。
-         */
-         .input_voltage_rms_min_v = 10.0f,
-         /*
-         * 整流侧母线上限 [V]：= 过压保护阈值 66 V，避免"外环目标贴着
-         * 保护线"造成跳闸抖动。校验要求 ≤ protection.dc_voltage_max_v。
-         */
-         .dc_voltage_max_v = APP_INVERTER_DC_OVERVOLTAGE_V,
-         /*
-         * 母线参考软启动斜率 [V/s]：0 → 62 V 约 1.03 s。
-         * 来历：参考工程同值；仿真记录 0.2 s 进 READY、1.2 s 母线到
-         *       62.07 V（docs/ERROR_LOG.md）。调大 = 冲击电流更大。
-         */
-         .dc_reference_slew_v_per_s = 60.0f,
-         /*
-         * 母线"已就绪"容差 [V]：|实测 − 目标| ≤ 5 V 才算到位（配合
-         * dc_ready_confirm_samples 连续确认）。
-         */
-         .dc_ready_tolerance_v = 5.0f,
-         /* 与参考工程一致：20 kHz 下连续 1000 拍（50 ms）确认母线就绪。 */
-         .dc_ready_confirm_samples = 1000U,
-         /*
-         * 输入电流 RMS 限幅 [A]（母线 PI 输出的电流幅值指令上限）。
-         * 赛题满载 Po=√3×32V×2.0A≈110.9W，η≥95% 时 Pin≈116.7W：
-         * 36V 输入需 3.24A RMS，31V 输入需 3.77A RMS。
-         * 限幅取 3.8A RMS（5.37A 峰值）。TA 实测量程约 -5.90..+5.68A，
-         * 峰值余量仅剩 ~6%，效率不达标时 31V 满载会贴量程顶。
-         * 校验链（BoardPower_RectifierConfigValid）：本限幅的峰值
-         * 1.414×3.8 = 5.37 A 必须 < 过流阈值 5.6 A，且两者都要落在
-         * iin 可测量程内——一起看，别单改一个数。
-         */
-         .current_rms_max_a = 3.8f,
-         /* SLX 外环 PI 增益保持 Kp=1、Ki=1（外环按 1 kHz 离散）。 */
-         .dc_pi_kp = 1.0f,
-         .dc_pi_ki = 1.0f,
-         /* 抗饱和增益 0 = 条件积分（见 pi_controller.c 的 kaw 语义），
-         * 不做额外回灌；要改非零先读那段实现。 */
-         .dc_pi_kaw = 0.0f,
-         /* SLX 输入电流 PR/QPR 参数：Kp=5、Kr=60、Wc=5 rad/s。 */
-         .current_qpr_kp = 5.0f,
-         .current_qpr_kr = 60.0f,
-         .current_qpr_bandwidth_rad_s = 5.0f,
-         /* 电感电压指令限幅 [V]（内环 QPR 输出 ±）：正常只有几十伏
-         * （桥压 ≈ Vin − 电感压降），1200 V 是防爆常量。真正的约束在
-         * 占空比区间——桥压被钳在 [0.02, 0.98]×Vdc 内。 */
-         .inductor_voltage_limit_v = 1200.0f,
-         /* 整流侧母线欠压下限 [V]：低于它 Step 直接失败（同逆变侧）。
-         * 校验要求 SET 目标 ≥ 它。 */
-         .dc_voltage_min_v = 10.0f,
-         /* 正电流幅值和 PI 的 0 A 下限共同禁止直流向交流回馈。 */
-         .current_reference_sign = 1.0f,
-         /* 桥臂极性：+1 = 与原理图一致；实物高低侧接反（等价电流方向
-         * 反号）才改 −1。**改错就是正反馈**，会把母线泵到过压——
-         * 改前先看 README 3.2 节桥臂 B 的接线说明。 */
-         .bridge_polarity = 1.0f,
-         /* 陷波器零点阻尼 0 → 理想零点：100 Hz 处全陷（坑最深）。 */
-         .notch_zero_damping = 0.0f,
-         /* 极点阻尼 ζp = 50/(4π×100) ≈ 0.0398，满足 2ζpω0 = 50 rad/s，
-         * 即陷波半带宽 ≈ 8 Hz——坑足够窄：摘掉母线二倍频纹波又不吃掉
-         * 外环相位裕度。改大 = 坑变宽、外环相位裕度下降。 */
-         .notch_pole_damping = 50.0f / (4.0f * APP_PI_F * 100.0f),
-         /* 同逆变级：占空比区间，避开最小脉宽。桥压上限 = 0.98×Vdc；
-         * 41 V 输入峰值 58 V 时需要 m = 0.935 < 0.96，余量就在这两个数里。 */
-         .duty_min = 0.02f,
-         .duty_max = 0.98f},
     .protection =
-        {/* 输入电流瞬时绝对值阈值 [A]。
-         * 31V 满载输入电流峰值约 5.33A；阈值需高于它且不超过 TA 可测
-         * 上限（+5.68A），取 5.6A——余量很薄，勿再调高。
-         * 校验还要求它 > 1.414×current_rms_max_a = 5.37 A（否则满载即
-         * 误跳闸）。 */
-         .input_current_abs_max_a = 5.6f,
-         /* 逆变相电流瞬时绝对值阈值 [A]：相电流额定峰值 2.83 A、电流
+        {/* 相电流瞬时绝对值阈值 [A]：相电流额定峰值 2.83 A、电流
          * 参考限幅 3.0 A，3.5 A 高于两者——真触发说明电流环已失控。
          * 也低于 TA 可测 5.68 A，保证先"测到"再判。 */
          .phase_current_abs_max_a = 3.5f,
-         /* 输入交流电压瞬时绝对值阈值 [V]：41 V RMS 峰值 58 V，留 12%
-         * 余量；且远低于 TV 可测上限 99.3 V，不会先撞量程。 */
-         .input_voltage_abs_max_v = 65.0f,
          /* RUN 期间母线欠压下限 [V] = SET 下限 30 − 一致性容差 3 = 27，
          * 比"设定未达标"松一档，避免母线纹波/负载跳变时误报停车。 */
          .dc_voltage_min_run_v = APP_INVERTER_DC_VOLTAGE_MIN_V - APP_INVERTER_DC_MATCH_TOLERANCE_V,
@@ -410,8 +271,8 @@ APP_WEAK const BoardPowerConfig *BoardPower_GetConfig(void) {
 }
 
 /*
- * 所有模式共用的第一道校验：总开关 + 六个安全标志 + 保护阈值/状态机
- * 拍数的有限性与范围。返回 false = 这份配置根本不允许进 RUN。
+ * 第一道校验：总开关 + 各确认标志 + 保护阈值/状态机拍数的有限性与范围。
+ * 返回 false = 这份配置根本不允许进 RUN。具体参数再由 InverterConfigValid 查。
  */
 static bool BoardPower_CommonConfigValid(const control_config_t *cfg) {
     if ((cfg == NULL) || !cfg->config_valid || !cfg->adc_calibrated || !cfg->gate_driver_pins_valid ||
@@ -419,11 +280,9 @@ static bool BoardPower_CommonConfigValid(const control_config_t *cfg) {
         return false;
     }
 
-    return isfinite(cfg->protection.dc_voltage_max_v) && isfinite(cfg->protection.input_current_abs_max_a) &&
-           isfinite(cfg->protection.phase_current_abs_max_a) && isfinite(cfg->protection.input_voltage_abs_max_v) &&
+    return isfinite(cfg->protection.dc_voltage_max_v) && isfinite(cfg->protection.phase_current_abs_max_a) &&
            isfinite(cfg->protection.dc_voltage_min_run_v) && isfinite(cfg->protection.output_voltage_abs_max_v) &&
-           (cfg->protection.input_current_abs_max_a > 0.0f) && (cfg->protection.phase_current_abs_max_a > 0.0f) &&
-           (cfg->protection.input_voltage_abs_max_v > 0.0f) && (cfg->protection.dc_voltage_min_run_v >= 0.0f) &&
+           (cfg->protection.phase_current_abs_max_a > 0.0f) && (cfg->protection.dc_voltage_min_run_v >= 0.0f) &&
            (cfg->protection.output_voltage_abs_max_v > 0.0f) &&
            (cfg->protection.dc_voltage_max_v > cfg->protection.dc_voltage_min_run_v) &&
            (cfg->protection.stale_limit_samples > 0U) && (cfg->state.self_test_confirm_samples > 0U) &&
@@ -431,7 +290,7 @@ static bool BoardPower_CommonConfigValid(const control_config_t *cfg) {
 }
 
 /*
- * 逆变模式（MODE1）校验：逐项对应 .inverter 段每个数——
+ * 逆变参数校验：逐项对应 .inverter 段每个数——
  *   标定有效；线电压参考 ∈ [28, 34] 且 ≤ voltage_rms_max×√3；
  *   母线目标 ∈ [30, 65] 且 < 过压阈值；母线下限 < SET 下限；
  *   频率白名单（只放行 30 / 60 Hz）；QPR 增益非负且不同时为 0；
@@ -469,106 +328,16 @@ static bool BoardPower_InverterConfigValid(const control_config_t *cfg) {
 }
 
 /*
- * 整流模式（MODE2）校验。关键的一条是"量程必须盖住两个上限"：
- *   把 iin 的标定反算成可测量程 [measurable_min, measurable_max]，
- *   要求同时盖住 ①电流指令峰值 1.414×current_rms_max_a = 5.37 A
- *   ②软件过流阈值 input_current_abs_max_a = 5.6 A；并额外要求
- *   1.414×current_rms_max_a < input_current_abs_max_a。
- * 这条就是 README"已知风险 2"的由来：量程一旦不够，超限电流会先被判
- * 成"测量无效"（故障码 1）而不是过流（故障码 3）——现场排查别被误导。
- * 其余检查：Vin 诊断容差 > 0；母线目标在 [min,max] 内且 < 过压阈值；
- * 外环 PI / 内环 QPR 参数非负且不同时为 0；陷波阻尼 0 ≤ zero ≤ pole；
- * 极性 +1（禁止 AC←DC）；占空比区间合法。
+ * 配置校验总入口：公共项 + 逆变参数（含它实际用到的四路标定）。
+ *
+ * 注意只检查**实际用到的通道**：Ia/Ib/Vab/Vbc。标定表里的 Vdc 通道
+ * 目前不参与换算（母线值由 SET 提供，见 app_control.c），所以它没标定
+ * 也不会挡住运行；哪天把 PC4 接上并改用实测母线，记得把它纳入校验。
+ *
+ * 通过 = 允许进 RUN；任何一项不过，状态机就锁在 RUN 之外。
  */
-static bool BoardPower_RectifierConfigValid(const control_config_t *cfg) {
-    float current_at_raw_min;
-    float current_at_raw_max;
-    float measurable_min;
-    float measurable_max;
-    float current_command_peak;
-    float required_peak;
-
-    current_at_raw_min =
-        ((float)cfg->measurement.iin.raw_min - cfg->measurement.iin.offset_count) * cfg->measurement.iin.gain;
-    current_at_raw_max =
-        ((float)cfg->measurement.iin.raw_max - cfg->measurement.iin.offset_count) * cfg->measurement.iin.gain;
-    measurable_min = fminf(current_at_raw_min, current_at_raw_max);
-    measurable_max = fmaxf(current_at_raw_min, current_at_raw_max);
-    current_command_peak = 1.41421356237f * cfg->rectifier.current_rms_max_a;
-    required_peak = fmaxf(current_command_peak, cfg->protection.input_current_abs_max_a);
-
-    return cfg->rectifier_adc_calibrated && Measurement_RectifierCalibrationValid(&cfg->measurement) &&
-           isfinite(measurable_min) && isfinite(measurable_max) && isfinite(current_command_peak) &&
-           isfinite(required_peak) && (measurable_min <= -required_peak) && (measurable_max >= required_peak) &&
-           (cfg->vin_diagnostic_tolerance_counts > 0U) && isfinite(cfg->dc_voltage_ref) &&
-           (cfg->dc_voltage_ref >= cfg->rectifier.dc_voltage_min_v) &&
-           (cfg->dc_voltage_ref <= cfg->rectifier.dc_voltage_max_v) &&
-           (cfg->dc_voltage_ref < cfg->protection.dc_voltage_max_v) && isfinite(cfg->rectifier.sample_time_s) &&
-           isfinite(cfg->rectifier.line_frequency_hz) && isfinite(cfg->rectifier.rms_filter_time_constant_s) &&
-           isfinite(cfg->rectifier.input_voltage_rms_min_v) && isfinite(cfg->rectifier.dc_voltage_max_v) &&
-           isfinite(cfg->rectifier.dc_reference_slew_v_per_s) && isfinite(cfg->rectifier.dc_ready_tolerance_v) &&
-           isfinite(cfg->rectifier.current_rms_max_a) && isfinite(cfg->rectifier.dc_pi_kp) &&
-           isfinite(cfg->rectifier.dc_pi_ki) && isfinite(cfg->rectifier.dc_pi_kaw) &&
-           isfinite(cfg->rectifier.current_qpr_kp) && isfinite(cfg->rectifier.current_qpr_kr) &&
-           isfinite(cfg->rectifier.current_qpr_bandwidth_rad_s) && isfinite(cfg->rectifier.inductor_voltage_limit_v) &&
-           isfinite(cfg->rectifier.dc_voltage_min_v) && isfinite(cfg->rectifier.current_reference_sign) &&
-           isfinite(cfg->rectifier.bridge_polarity) && isfinite(cfg->rectifier.notch_zero_damping) &&
-           isfinite(cfg->rectifier.notch_pole_damping) && isfinite(cfg->rectifier.duty_min) &&
-           isfinite(cfg->rectifier.duty_max) && (cfg->rectifier.sample_time_s > 0.0f) &&
-           (cfg->rectifier.line_frequency_hz > 0.0f) && (cfg->rectifier.outer_loop_divider > 0U) &&
-           (cfg->rectifier.rms_filter_time_constant_s > 0.0f) && (cfg->rectifier.input_voltage_rms_min_v > 0.0f) &&
-           (cfg->rectifier.dc_voltage_min_v > 0.0f) &&
-           (cfg->rectifier.dc_voltage_max_v > cfg->rectifier.dc_voltage_min_v) &&
-           (cfg->rectifier.dc_voltage_max_v <= cfg->protection.dc_voltage_max_v) &&
-           (cfg->rectifier.dc_reference_slew_v_per_s > 0.0f) && (cfg->rectifier.dc_ready_tolerance_v > 0.0f) &&
-           (cfg->rectifier.dc_ready_confirm_samples > 0U) && (cfg->rectifier.current_rms_max_a > 0.0f) &&
-           (current_command_peak < cfg->protection.input_current_abs_max_a) && (cfg->rectifier.dc_pi_kp >= 0.0f) &&
-           (cfg->rectifier.dc_pi_ki >= 0.0f) && (cfg->rectifier.dc_pi_kaw >= 0.0f) &&
-           ((cfg->rectifier.dc_pi_kp + cfg->rectifier.dc_pi_ki) > 0.0f) && (cfg->rectifier.current_qpr_kp >= 0.0f) &&
-           (cfg->rectifier.current_qpr_kr >= 0.0f) && (cfg->rectifier.current_qpr_bandwidth_rad_s > 0.0f) &&
-           ((cfg->rectifier.current_qpr_kp + cfg->rectifier.current_qpr_kr) > 0.0f) &&
-           (cfg->rectifier.inductor_voltage_limit_v > 0.0f)
-           /*
-         * PI 输出下限在 RectifierControl_Init 中固定为 0 A；这里禁止
-         * 负的电流参考极性，确保任何有效配置都只能 AC -> DC。
-         */
-           && (cfg->rectifier.current_reference_sign >= 0.5f) && (fabsf(cfg->rectifier.bridge_polarity) >= 0.5f) &&
-           (cfg->rectifier.notch_zero_damping >= 0.0f) && (cfg->rectifier.notch_pole_damping > 0.0f) &&
-           (cfg->rectifier.notch_zero_damping <= cfg->rectifier.notch_pole_damping) &&
-           (cfg->rectifier.duty_min >= 0.0f) && (cfg->rectifier.duty_max <= 1.0f) &&
-           (cfg->rectifier.duty_min < cfg->rectifier.duty_max);
-}
-
-/*
- * 按运行模式分派校验：
- *   MODE0_FULL       —— 两级都查，且要求两级 sample_time 完全相等
- *                       （两级共用同一个 ADC 触发源的前提）；
- *   MODE1_INVERTER   —— 只查逆变级（整流标定没做完也能跑）；
- *   MODE2_RECTIFIER  —— 只查整流级。
- * "只查用到的通道"是刻意设计，别改成永远全查——那会让单级调试无法进行。
- */
-bool BoardPower_ValidateModeConfig(const control_config_t *cfg, app_mode_t mode) {
-    if (!BoardPower_CommonConfigValid(cfg)) return false;
-
-    switch (mode) {
-    case MODE1_INVERTER:
-        return BoardPower_InverterConfigValid(cfg);
-
-    case MODE2_RECTIFIER:
-        return BoardPower_RectifierConfigValid(cfg);
-
-    case MODE0_FULL:
-        return Measurement_CalibrationValid(&cfg->measurement) && BoardPower_InverterConfigValid(cfg) &&
-               BoardPower_RectifierConfigValid(cfg) && (cfg->rectifier.sample_time_s == cfg->inverter.sample_time_s);
-
-    default:
-        return false;
-    }
-}
-
-/* 全量校验的旧接口（等价 MODE0_FULL），保留给既有调用方 */
 bool BoardPower_ValidateConfig(const control_config_t *cfg) {
-    return BoardPower_ValidateModeConfig(cfg, MODE0_FULL);
+    return (cfg != NULL) && BoardPower_CommonConfigValid(cfg) && BoardPower_InverterConfigValid(cfg);
 }
 
 /* 便捷封装：直接校验 BoardPower_GetConfig() 返回的当前配置 */

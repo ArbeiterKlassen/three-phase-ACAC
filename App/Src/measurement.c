@@ -1,20 +1,13 @@
 /*
- * ADC 解包、通道标定与三相量重构。
+ * ADC 解包、通道标定与三相量重构（三相逆变工程）。
  *
  * 数据流（一次快环走一遍）：
  *
  *   DMA 双缓冲 → 4 个 32 位 CDR 字
- *     → 【解包】按 Rank 拆成 8 个 16 位原始码
+ *     → 【解包】取出本工程要用的 4 路原始码（Ib/Ia/Vab/Vbc）
  *     → 【标定】每路 (原始码 − 零点) × 每码比例  → 物理量
  *     → 【重构】由两相量补出第三相
  *     → Measurements（供保护与控制使用）
- *
- * 三种模式用的通道不同，所以解包与标定各有三套：
- *   MODE0 全帧（四 Rank，含 Vin 冗余校验）
- *   MODE1 仅 Ib/Ia/Vab/Vbc
- *   MODE2 仅 Iin/Vin/Vdc
- * 分开写不是冗余——它让每个模式只依赖自己真正用到的通道，
- * 单级台架上没接的通道不会误伤模式校验。
  */
 
 #include "measurement.h"
@@ -53,109 +46,41 @@ static bool ChannelCalibration_Apply(const ChannelCalibration *cal, uint16_t raw
     return isfinite(*value);
 }
 
-/* 七路全部有效才通过。用于 MODE0 的完整校验 */
+/* 全部通道有效才通过（含暂未参与换算的 Vdc）。用在整体配置校验里 */
 bool Measurement_CalibrationValid(const MeasurementCalibration *cal) {
-    return (cal != NULL) && ChannelCalibration_Valid(&cal->iin) && ChannelCalibration_Valid(&cal->vin) &&
-           ChannelCalibration_Valid(&cal->ia) && ChannelCalibration_Valid(&cal->ib) &&
+    return (cal != NULL) && ChannelCalibration_Valid(&cal->ia) && ChannelCalibration_Valid(&cal->ib) &&
            ChannelCalibration_Valid(&cal->vab) && ChannelCalibration_Valid(&cal->vbc) &&
            ChannelCalibration_Valid(&cal->vdc);
 }
 
-/* 只查逆变四路（Ia/Ib/Vab/Vbc）。Iin/Vin/Vdc 不参与，单测台架没接也不影响 */
+/* 只查本工程实际用到的四路（Ia/Ib/Vab/Vbc） */
 bool Measurement_InverterCalibrationValid(const MeasurementCalibration *cal) {
     return (cal != NULL) && ChannelCalibration_Valid(&cal->ia) && ChannelCalibration_Valid(&cal->ib) &&
            ChannelCalibration_Valid(&cal->vab) && ChannelCalibration_Valid(&cal->vbc);
 }
 
-/* 只查整流三路（Iin/Vin/Vdc）。三相输出通道不参与 */
-bool Measurement_RectifierCalibrationValid(const MeasurementCalibration *cal) {
-    return (cal != NULL) && ChannelCalibration_Valid(&cal->iin) && ChannelCalibration_Valid(&cal->vin) &&
-           ChannelCalibration_Valid(&cal->vdc);
-}
-
 /*
- * 把 4 个 CDR 打包字拆成 8 个 16 位原始码。
+ * 解包一帧：只取逆变需要的两路。
  *
- * 硬件约定：每个 32 位字低 16 位是 ADC1 的结果、高 16 位是 ADC2 的。
- * 两个 ADC 按相同的 Rank 同步转换，所以同一个字里的两路是同一时刻采的
- * —— 这一点很重要，相位重构的正确性依赖它。
+ * 硬件约定：每个 32 位 CDR 字低 16 位是 ADC1 的结果、高 16 位是 ADC2 的；
+ * 两个 ADC 按相同 Rank 同步转换，所以同一个字里的两路是同一时刻采的
+ * —— 相位重构的正确性依赖这一点。
  *
- * Rank 映射（与 .ioc 的 ADC1/ADC2 通道配置一一对应，改硬件要同步改这里）：
- *   Rank1  低Iin(PA5)      高Vin(PC5)
- *   Rank2  低Ib(PC0)       高Ia(PC1)
- *   Rank3  低Vab(PC2)      高Vbc(PC3)
- *   Rank4  低Vdc(PC4)      高Vin诊断(PC5)
+ * Rank 映射（与 .ioc 的 ADC 通道配置一一对应，改硬件要同步改这里）：
+ *   Rank1  低Iin(PA5)  高Vin(PC5)      ← 本工程不使用
+ *   Rank2  低Ib(PC0)   高Ia(PC1)       ← 使用
+ *   Rank3  低Vab(PC2)  高Vbc(PC3)      ← 使用
+ *   Rank4  低Vdc(PC4)  高Vin诊断(PC5)  ← 本工程不使用
  *
- * 注意 Rank2 与 Rank3 的"低/高"顺序：与 Rank1 的 Iin/Vin 相反，
- * 这是跟着实际引脚走的，不是笔误。
+ * Rank2 与 Rank3 的"低/高"顺序（Ib 在前、Ia 在后）是跟着实际引脚走的，
+ * 不是笔误。rank1/rank4 保留在 DMA 序列里是为了维持既有时序。
  */
-static void Measurement_UnpackPairs(const uint32_t pairs[4], uint32_t sequence, AdcRawFrame *raw) {
-    raw->iin = (uint16_t)(pairs[0] & 0xFFFFUL);
-    raw->vin = (uint16_t)(pairs[0] >> 16);
-    /* ADC1/PC0 是 Ib，ADC2/PC1 是 Ia */
-    raw->ib = (uint16_t)(pairs[1] & 0xFFFFUL);
-    raw->ia = (uint16_t)(pairs[1] >> 16);
-    /* ADC1/PC2 是 Uab，ADC2/PC3 是 Ubc */
-    raw->vab = (uint16_t)(pairs[2] & 0xFFFFUL);
-    raw->vbc = (uint16_t)(pairs[2] >> 16);
-    raw->vdc = (uint16_t)(pairs[3] & 0xFFFFUL);
-    raw->vin_diag = (uint16_t)(pairs[3] >> 16);
-    raw->sequence = sequence;
-}
-
-/*
- * MODE0 解包：拆包之后再校验一路冗余。
- *
- * Vin 在 Rank1 与 Rank4 各采了一次（同一引脚 PC5，中间隔了悬空的 PC3）。
- * 两次读数必须接近，否则说明采样保持时间不够或 DMA 帧错位——这类问题
- * 不会让数据"看起来不对"，只会让控制悄悄变差，所以值得专门查。
- *
- * **失败时 out 仍然被填充**（含 sequence），只是 valid=false；
- * 调用方据此走"测量无效"路径而不是拿到垃圾数据。
- */
-bool Measurement_UnpackDualAdcPairs(const uint32_t pairs[4], uint32_t sequence, uint16_t vin_tolerance_counts,
-                                    AdcRawFrame *out) {
-    AdcRawFrame raw = {0};
-    uint16_t vin_delta;
-
-    if ((pairs == NULL) || (out == NULL)) return false;
-
-    Measurement_UnpackPairs(pairs, sequence, &raw);
-    /* 两次 Vin 采样的绝对差（无符号减法，先比大小防止回绕） */
-    vin_delta = (raw.vin > raw.vin_diag) ? (uint16_t)(raw.vin - raw.vin_diag) : (uint16_t)(raw.vin_diag - raw.vin);
-    raw.valid = vin_delta <= vin_tolerance_counts;
-    *out = raw;
-    return raw.valid;
-}
-
-bool Measurement_UnpackRectifierAdcPairs(const uint32_t pairs[4], uint32_t sequence, AdcRawFrame *out) {
-    AdcRawFrame raw = {0};
-
-    if ((pairs == NULL) || (out == NULL)) return false;
-
-    /*
-     * MODE2 uses PA5/Iin, the first PC5/Vin sample and PC4/Vdc.
-     * The repeated PC5 rank follows an unused, floating PC3 channel on
-     * the modular bench, so it is retained in the DMA frame but is not
-     * used as a validity gate. Physical range checks remain in the
-     * rectifier conversion and protection paths.
-     */
-    Measurement_UnpackPairs(pairs, sequence, &raw);
-    raw.valid = true;
-    *out = raw;
-    return true;
-}
-
 bool Measurement_UnpackInverterAdcPairs(const uint32_t pairs[4], uint32_t sequence, AdcRawFrame *out) {
     AdcRawFrame raw = {0};
 
     if ((pairs == NULL) || (out == NULL)) return false;
 
-    /*
-     * Inverter-only hardware uses PC0/PC1 for Ib/Ia and PC2/PC3 for
-     * Uab/Ubc. Rank 1 and rank 4 remain in the ADC sequence solely to
-     * preserve the existing dual-ADC DMA timing; their values are ignored.
-     */
+    /* ADC1/PC0 是 Ib，ADC2/PC1 是 Ia；ADC1/PC2 是 Uab，ADC2/PC3 是 Ubc */
     raw.ib = (uint16_t)(pairs[1] & 0xFFFFUL);
     raw.ia = (uint16_t)(pairs[1] >> 16);
     raw.vab = (uint16_t)(pairs[2] & 0xFFFFUL);
@@ -191,37 +116,13 @@ static bool Measurement_ReconstructThreePhase(Measurements *m, uint32_t sequence
 }
 
 /*
- * MODE0 全帧换算：七路都算，然后重构第三相。
- * 任一路越界或换算非有限 → 整体判无效（*out 被清零）。
- * 返回最终 valid。
- */
-bool Measurement_Convert(const MeasurementCalibration *cal, const AdcRawFrame *raw, Measurements *out) {
-    Measurements m = {0};
-    bool ok;
-
-    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid) {
-        if (out != NULL) *out = m;
-        return false;
-    }
-
-    ok = ChannelCalibration_Apply(&cal->iin, raw->iin, &m.iin) &&
-         ChannelCalibration_Apply(&cal->vin, raw->vin, &m.vin) && ChannelCalibration_Apply(&cal->ia, raw->ia, &m.ia) &&
-         ChannelCalibration_Apply(&cal->ib, raw->ib, &m.ib) && ChannelCalibration_Apply(&cal->vab, raw->vab, &m.vab) &&
-         ChannelCalibration_Apply(&cal->vbc, raw->vbc, &m.vbc) && ChannelCalibration_Apply(&cal->vdc, raw->vdc, &m.vdc);
-
-    if (ok) {
-        /* 只采了两相电流与两路线电压，第三相在这里补出来 */
-        (void)Measurement_ReconstructThreePhase(&m, raw->sequence);
-    }
-
-    *out = m;
-    return m.valid;
-}
-
-/*
- * MODE1 专用换算：只算逆变四路。
- * Iin/Vin/Vdc 显式置 0 —— 由 app_control.c 决定 MODE1 下母线用什么值
- * （默认用用户 SET 值），这里不臆造。
+ * 换算四路并重构第三相。
+ *
+ * Vdc 显式置 0 —— 母线通道（PC4）在本工程的测试台上没有接入，
+ * 调制用的母线值由 app_control.c 用用户 SET 值提供（那里有完整说明），
+ * 这里不臆造一个值出来。
+ *
+ * 任一路原始码越界或换算非有限 → 整体判无效（*out 被清零）。
  */
 bool Measurement_ConvertInverter(const MeasurementCalibration *cal, const AdcRawFrame *raw, Measurements *out) {
     Measurements m = {0};
@@ -236,35 +137,8 @@ bool Measurement_ConvertInverter(const MeasurementCalibration *cal, const AdcRaw
          ChannelCalibration_Apply(&cal->vab, raw->vab, &m.vab) && ChannelCalibration_Apply(&cal->vbc, raw->vbc, &m.vbc);
 
     if (ok) {
-        m.iin = 0.0f;
-        m.vin = 0.0f;
         m.vdc = 0.0f;
         (void)Measurement_ReconstructThreePhase(&m, raw->sequence);
-    }
-
-    *out = m;
-    return m.valid;
-}
-
-/*
- * MODE2 专用换算：只算 Iin/Vin/Vdc，三相输出量保持 0。
- * 单级整流台架上三相通道本来就悬空，不参与有效性判断。
- */
-bool Measurement_ConvertRectifier(const MeasurementCalibration *cal, const AdcRawFrame *raw, Measurements *out) {
-    Measurements m = {0};
-    bool ok;
-
-    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid) {
-        if (out != NULL) *out = m;
-        return false;
-    }
-
-    ok = ChannelCalibration_Apply(&cal->iin, raw->iin, &m.iin) &&
-         ChannelCalibration_Apply(&cal->vin, raw->vin, &m.vin) && ChannelCalibration_Apply(&cal->vdc, raw->vdc, &m.vdc);
-
-    if (ok) {
-        m.sequence = raw->sequence;
-        m.valid = isfinite(m.iin) && isfinite(m.vin) && isfinite(m.vdc);
     }
 
     *out = m;

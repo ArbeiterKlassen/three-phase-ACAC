@@ -27,7 +27,7 @@ typedef struct {
     bool start_request;       // 启动请求（键盘长按 #）
     bool stop_request;        // 停机请求
     bool reset_fault_request; // 复位故障请求（键盘长按 *）
-    bool precharge_done;      // 预充完成（MODE0/MODE2 由实测 Vdc 判定）
+    bool precharge_done;      // 预充完成（本工程恒为 true：母线由外部电源提供）
     bool phase_ready;         // 输入相位/同步就绪
     bool measurement_valid;   // 本拍测量有效
     bool discharge_done;      // 母线已降到安全阈值
