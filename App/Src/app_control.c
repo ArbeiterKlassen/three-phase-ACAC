@@ -112,7 +112,7 @@ static float AppControl_LineReferenceFromDc(float dc_voltage_v) {
 }
 
 static float AppControl_PhaseReferenceFromDc(float dc_voltage_v) {
-    return AppControl_LineReferenceFromDc(dc_voltage_v) * APP_INV_SQRT3_F;
+    return AppControl_LineReferenceFromDc(dc_voltage_v) * APP_1DIVSQRT3_F;
 }
 
 /* ══ ③ 安全输出与参考限幅 ═════════════════════════════════════════════ */
@@ -765,7 +765,7 @@ void App_Init(void) {
         g_app.command.dc_voltage_ref = g_app.control.cfg->dc_voltage_ref;
         /* 输出参考固定初始化为赛题 32V 线电压对应的相电压，
          * 不随 62V 母线目标联动。 */
-        g_app.command.inverter_vrms_ref = APP_INVERTER_OUTPUT_LINE_RMS_DEFAULT_V * APP_INV_SQRT3_F;
+        g_app.command.inverter_vrms_ref = APP_INVERTER_OUTPUT_LINE_RMS_DEFAULT_V * APP_1DIVSQRT3_F;
         InverterControl_SetReference(&g_app.control.inverter,
                                      AppControl_LimitPhaseReference(&g_app.control.inverter.cfg,
                                                                     g_app.command.inverter_vrms_ref,
@@ -946,7 +946,7 @@ bool App_SetOutputLineVoltageReference(float line_rms) {
         return false;
     }
 
-    phase_rms = line_rms * APP_INV_SQRT3_F;
+    phase_rms = line_rms * APP_1DIVSQRT3_F;
     if (phase_rms > g_app.control.inverter.cfg.voltage_rms_max) return false;
 
     /*

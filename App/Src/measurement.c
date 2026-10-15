@@ -285,7 +285,7 @@ AlphaBeta Measurement_VoltageAlphaBeta(const Measurements *m) {
     if ((m != NULL) && m->valid) {
         /* 幅值不变 Clarke 变换，平衡三相正弦量的 αβ 峰值保持不变。 */
         out.alpha = (2.0f / 3.0f) * (m->va - 0.5f * (m->vb + m->vc));
-        out.beta = APP_INV_SQRT3_F * (m->vb - m->vc);
+        out.beta = APP_1DIVSQRT3_F * (m->vb - m->vc);
     }
     return out;
 }
@@ -297,7 +297,7 @@ AlphaBeta Measurement_CurrentAlphaBeta(const Measurements *m) {
     if ((m != NULL) && m->valid) {
         /* 与电压环使用相同的幅值不变 Clarke 约定。 */
         out.alpha = (2.0f / 3.0f) * (m->ia - 0.5f * (m->ib + m->ic));
-        out.beta = APP_INV_SQRT3_F * (m->ib - m->ic);
+        out.beta = APP_1DIVSQRT3_F * (m->ib - m->ic);
     }
     return out;
 }

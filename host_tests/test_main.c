@@ -73,7 +73,7 @@ static bool Test_Measurement(void) {
     TEST_CHECK(TEST_NEAR(m.vdc, 100.0f, 1.0e-6f));
     voltage = Measurement_VoltageAlphaBeta(&m);
     TEST_CHECK(TEST_NEAR(voltage.alpha, m.va, 1.0e-4f));
-    TEST_CHECK(TEST_NEAR(voltage.beta, APP_INV_SQRT3_F * (m.vb - m.vc), 1.0e-4f));
+    TEST_CHECK(TEST_NEAR(voltage.beta, APP_1DIVSQRT3_F * (m.vb - m.vc), 1.0e-4f));
 
     raw.valid = false;
     TEST_CHECK(!Measurement_Convert(&cal, &raw, &m));
@@ -562,7 +562,7 @@ static bool Test_InverterOpenLoop(void) {
         sweep_m.valid = true;
         sweep_m.vdc = vdc;
         TEST_CHECK(InverterControl_Init(&sweep, &cfg));
-        InverterControl_SetReference(&sweep, vdc * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F);
+        InverterControl_SetReference(&sweep, vdc * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_1DIVSQRT3_F);
         for (sample = 0U; sample < 400U; sample++) {
             TEST_CHECK(InverterControl_StepOpenLoop(&sweep, &sweep_m, true, &sweep_out));
             TEST_CHECK(!sweep_out.pwm.saturated);
@@ -1001,13 +1001,13 @@ static bool Test_InverterOnlyAppFlow(void) {
     TEST_CHECK(TEST_NEAR(out.rectifier.leg_a, 0.5f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(out.measurement.vdc, 0.0f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(app.inverter.reference_target_rms,
-                         30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F, 1.0e-5f));
+                         30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_1DIVSQRT3_F, 1.0e-5f));
 
     command.dc_voltage_ref = 65.0f;
     raw.sequence++;
     TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
     TEST_CHECK(TEST_NEAR(app.inverter.reference_target_rms,
-                         65.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F, 1.0e-5f));
+                         65.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_1DIVSQRT3_F, 1.0e-5f));
 
     command.dc_voltage_ref = 30.0f;
     raw.vdc = 0U;
@@ -1019,7 +1019,7 @@ static bool Test_InverterOnlyAppFlow(void) {
     TEST_CHECK((out.faults & PROTECTION_FAULT_DC_UNDERVOLTAGE) == 0U);
     TEST_CHECK((out.faults & PROTECTION_FAULT_DC_MISMATCH) == 0U);
     TEST_CHECK(TEST_NEAR(app.inverter.reference_target_rms,
-                         30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F, 1.0e-5f));
+                         30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_1DIVSQRT3_F, 1.0e-5f));
 
     command.enable = false;
     raw.sequence++;

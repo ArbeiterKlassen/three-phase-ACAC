@@ -200,7 +200,7 @@ const BoardPowerConfig g_board_power_config = {
          *       ② App_SetOutputLineVoltageReference 的合法性门限
          *       （要求相电压 ≤ 20.0 V，即线电压 ≤ 34.67 V）。
          */
-         .voltage_rms_max = APP_INVERTER_DC_VOLTAGE_MAX_V * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F,
+         .voltage_rms_max = APP_INVERTER_DC_VOLTAGE_MAX_V * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_1DIVSQRT3_F,
          /*
          * 相电压 RMS 软启动斜率 [V/s] = 62 V 母线 × (32/60) ÷ √3 = 19.09。
          * 来历：同一比例外推；从 0 爬到额定 18.48 V 约 0.97 s，仿真里
@@ -209,7 +209,7 @@ const BoardPowerConfig g_board_power_config = {
          *       要重看仿真里前 1 s 的母线/电流波形。
          */
          .reference_slew_v_per_s =
-             APP_INVERTER_DC_VOLTAGE_DEFAULT_V * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F,
+             APP_INVERTER_DC_VOLTAGE_DEFAULT_V * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_1DIVSQRT3_F,
          /*
          * 电压前馈系数：桥压指令 = 前馈×参考 + 电流内环 QPR 输出。
          * 0 = 纯反馈（与 SLX 一致，也是唯一验证过的整定）；非零相当于

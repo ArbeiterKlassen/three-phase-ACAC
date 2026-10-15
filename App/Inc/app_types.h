@@ -9,16 +9,18 @@
  * 单位约定（改名前先看这条）：
  *   电压 _v [V]、电流 _a [A]、时间 _s [s]、频率 _hz [Hz]
  *   数值字段一律带单位后缀；不带后缀的 float 只允许是归一化量（占空比 0~1）
+ *
+ * 数学常数（π、√3、1/√3 …）统一在 constants.h 里，这里只再做一次转发，
+ * 所以包含本头文件就等于拿到全部常用常数。
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#define APP_PI_F (3.14159265358979323846f)
-#define APP_SQRT3_F (1.73205080756887729353f)     // √3
-#define APP_INV_SQRT3_F (0.57735026918962576451f) // 1/√3，线电压↔相电压换算用
-#define APP_FAULT_FAST_HISTORY_DEPTH (16U)        // 故障快照保留的拍数
-#define APP_FAULT_CYCLE_HISTORY_DEPTH (32U)       // 故障快照保留的工频周期数
+#include "constants.h"
+
+#define APP_FAULT_FAST_HISTORY_DEPTH (16U)  // 故障快照保留的拍数
+#define APP_FAULT_CYCLE_HISTORY_DEPTH (32U) // 故障快照保留的工频周期数
 
 /* 一帧未换算的 ADC 原始码。由 DMA/解包产生，尚未乘标定系数。 */
 typedef struct {

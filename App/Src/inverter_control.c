@@ -19,8 +19,6 @@
  *   软启动参考 → 电压外环 QPR → 电流参考 → 电流内环 QPR → 桥压指令(+前馈)
  *   → SVPWM → 三相占空比；最后把"实际施加量"回灌电流环抗饱和。
  */
-#define INVERTER_SQRT2_F (1.41421356237309504880f) /* 相 RMS → 峰值 */
-
 /* 把 value 限制到 [low, high]，三段式无分支逻辑（编译后是条件移动）。 */
 static float InverterControl_Clamp(float value, float low, float high) {
     if (value > high) return high;
@@ -205,7 +203,7 @@ static bool InverterControl_StepInternal(InverterControl *control, const Measure
     }
 
     /* 相峰值 = √2·相RMS；αβ 矢量幅值就等于相峰值（线电压 = 相×√3）。 */
-    peak = INVERTER_SQRT2_F * control->reference_rms;
+    peak = APP_SQRT2_F * control->reference_rms;
     /* 正相序约定：A=sinθ，B=sin(θ-120°)，C=sin(θ+120°)
      * → Clarke 后 α = peak·sinθ、β = −peak·cosθ（β 的负号来自 B/C 相
      * 的正交投影方向，写反会变成负相序）。 */
