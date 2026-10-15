@@ -164,11 +164,27 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     App_FastStep20kHz();
     TEST_CHECK((App_GetStatus()->faults
                 & PROTECTION_FAULT_MEASUREMENT) == 0U);
-    TEST_CHECK(App_ApplyAdcPairs(pair, 204U));
-    App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) != 0U);
-    TEST_CHECK(!App_GetStatus()->pwm_allowed);
+    /*
+     * 测量无效的确认窗口是 100 ms（2000 拍）：上电时母线电容的充电浪涌
+     * 会让电流通道短暂越限，那不是传感器故障。窗口内只计数不锁存，
+     * 达到窗口才锁存——见 protection.c 的 PROTECTION_MEASUREMENT_CONFIRM_SAMPLES。
+     */
+    {
+        uint32_t k;
+
+        for (k = 0U; k < 1998U; k++)
+        {
+            TEST_CHECK(App_ApplyAdcPairs(pair, 1000U + k));
+            App_FastStep20kHz();
+            TEST_CHECK((App_GetStatus()->faults
+                        & PROTECTION_FAULT_MEASUREMENT) == 0U);
+        }
+        TEST_CHECK(App_ApplyAdcPairs(pair, 1000U + k));
+        App_FastStep20kHz();
+        TEST_CHECK((App_GetStatus()->faults
+                    & PROTECTION_FAULT_MEASUREMENT) != 0U);
+        TEST_CHECK(!App_GetStatus()->pwm_allowed);
+    }
 
     App_Init();
     TEST_CHECK(App_RequestMode(MODE2_RECTIFIER));
@@ -177,11 +193,22 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     App_FastStep20kHz();
     TEST_CHECK((App_GetStatus()->faults
                 & PROTECTION_FAULT_MEASUREMENT) == 0U);
-    TEST_CHECK(App_ApplyAdcPairs(pair, 206U));
-    App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) != 0U);
-    TEST_CHECK(!App_GetStatus()->pwm_allowed);
+    {
+        uint32_t k;
+
+        for (k = 0U; k < 1998U; k++)
+        {
+            TEST_CHECK(App_ApplyAdcPairs(pair, 3000U + k));
+            App_FastStep20kHz();
+            TEST_CHECK((App_GetStatus()->faults
+                        & PROTECTION_FAULT_MEASUREMENT) == 0U);
+        }
+        TEST_CHECK(App_ApplyAdcPairs(pair, 3000U + k));
+        App_FastStep20kHz();
+        TEST_CHECK((App_GetStatus()->faults
+                    & PROTECTION_FAULT_MEASUREMENT) != 0U);
+        TEST_CHECK(!App_GetStatus()->pwm_allowed);
+    }
 
     App_Init();
     TEST_CHECK(App_RequestMode(MODE2_RECTIFIER));
@@ -191,11 +218,22 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     App_FastStep20kHz();
     TEST_CHECK((App_GetStatus()->faults
                 & PROTECTION_FAULT_MEASUREMENT) == 0U);
-    TEST_CHECK(App_ApplyAdcPairs(pair, 208U));
-    App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) != 0U);
-    TEST_CHECK(!App_GetStatus()->pwm_allowed);
+    {
+        uint32_t k;
+
+        for (k = 0U; k < 1998U; k++)
+        {
+            TEST_CHECK(App_ApplyAdcPairs(pair, 5000U + k));
+            App_FastStep20kHz();
+            TEST_CHECK((App_GetStatus()->faults
+                        & PROTECTION_FAULT_MEASUREMENT) == 0U);
+        }
+        TEST_CHECK(App_ApplyAdcPairs(pair, 5000U + k));
+        App_FastStep20kHz();
+        TEST_CHECK((App_GetStatus()->faults
+                    & PROTECTION_FAULT_MEASUREMENT) != 0U);
+        TEST_CHECK(!App_GetStatus()->pwm_allowed);
+    }
     return true;
 }
 
@@ -798,16 +836,28 @@ static bool Test_Protection(void)
     m.sequence = 1U;
     Protection_Init(&protection);
 
-    /* One invalid conversion stops PWM through measurement_valid, but only
-     * two consecutive invalid frames latch ADC INVALID. */
+    /*
+     * One invalid conversion stops PWM through measurement_valid. Latching
+     * ADC INVALID takes a sustained 100 ms window (2000 fast samples) so the
+     * power-on capacitor inrush, which briefly drives the current channel past
+     * its raw range, cannot brick the board before the bus is even up.
+     */
     m.valid = false;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_MEASUREMENT) == 0UL);
-    TEST_CHECK(protection.measurement_invalid_count == 1U);
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_MEASUREMENT) != 0UL);
+    {
+        uint32_t k;
+
+        for (k = 0U; k < 1999U; k++)
+        {
+            TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
+                                            true, false, false)
+                        & PROTECTION_FAULT_MEASUREMENT) == 0UL);
+        }
+        TEST_CHECK(protection.measurement_invalid_count
+                   == (uint16_t)1999U);
+        TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
+                                        true, false, false)
+                    & PROTECTION_FAULT_MEASUREMENT) != 0UL);
+    }
     m.valid = true;
     m.sequence++;
     TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,

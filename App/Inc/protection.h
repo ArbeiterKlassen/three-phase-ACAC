@@ -41,7 +41,9 @@ typedef struct
     uint32_t latched_faults;
     uint32_t last_sequence;
     uint16_t stale_count;
-    uint8_t measurement_invalid_count;
+    /* 16 位：测量无效的确认窗口已放宽到 100 ms（20 kHz 下 2000 拍），
+     * 8 位放不下。见 protection.c 中 PROTECTION_MEASUREMENT_CONFIRM_SAMPLES。 */
+    uint16_t measurement_invalid_count;
     uint8_t input_oc_count;
     uint8_t input_ov_count;
     uint8_t output_ov_count;

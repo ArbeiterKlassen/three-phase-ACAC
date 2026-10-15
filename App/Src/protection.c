@@ -6,7 +6,17 @@
 #define PROTECTION_INPUT_OC_CONFIRM_SAMPLES  (2U)
 #define PROTECTION_INPUT_OV_CONFIRM_SAMPLES  (2U)
 #define PROTECTION_OUTPUT_OV_CONFIRM_SAMPLES (2U)
-#define PROTECTION_MEASUREMENT_CONFIRM_SAMPLES (2U)
+/*
+ * 测量无效原来 2 拍（100 us）即锁存，上电时会被充电浪涌误触发：
+ * 母线电容经整流二极管充电，浪涌电流远超 TA 量程（±5.9 A 对应原始码
+ * 64..4031），采样被判"量程超限、测量无效"，两点之后系统在母线还没
+ * 充起来时就已经 FAULT_LATCH —— 表现为"整流级上电毫无输出"。
+ *
+ * 该浪涌持续不到 1 ms（τ = R_loop·C_bus 量级），而真正的传感器断线、
+ * 掉电或 ADC 故障会一直无效。因此把确认窗口放宽到 100 ms：暂态过后
+ * 计数器自动清零，持续故障仍会被抓住。
+ */
+#define PROTECTION_MEASUREMENT_CONFIRM_SAMPLES (2000U)
 /*
  * 直流过压原来单采样即锁存：PWM 启动瞬间 Vdc 分压通道上的开关
  * 噪声/振铃一个采样点就越阈误跳。改为连续3拍（20 kHz 下 150 us）
