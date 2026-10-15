@@ -1,3 +1,26 @@
+/*
+ * 应用层门面：三模式调度、20 kHz 快环，以及对板级层公开的单例接口。
+ *
+ * ── 阅读导引（本文件 1390 行，按下面的顺序读最省力）────────────────────
+ *
+ *   ① 临界区辅助        与 ISR 共享状态时的进出临界区
+ *   ② 模式与参考值工具  模式判定、母线→输出参考换算、有效性检查
+ *   ③ 安全输出与限幅    出错时输出什么、参考被什么限制
+ *   ④ 故障记录器        跳闸前滚动保存现场，供事后定位
+ *   ⑤ 实例接口          AppControl_Init / Reset / SetMode（不含 Step）
+ *   ⑥ ★ AppControl_Step 核心：一次快环的全部流程（约 360 行）
+ *   ⑦ 单例发布          把控制结果搬进对外快照
+ *   ⑧ 单例接口          App_* 系列，板级层调用的就是这些
+ *
+ * ── 两条必须守住的设计约束 ───────────────────────────────────────────
+ *
+ *   1. 没有任何软件路径能绕过状态机的 pwm_allowed。
+ *      硬件 Break 更快——它由定时器直接清 MOE，不经本文件。
+ *
+ *   2. MODE1 用用户 SET 值代替未接入的 Vdc 作为调制分母（见 ⑥ 的开头）。
+ *      这是单级测试台架的设计，不是疏漏；MODE0/MODE2 一律用实测值。
+ */
+
 #include "app_control.h"
 
 #include <math.h>
@@ -28,6 +51,8 @@ typedef struct
 static AppRuntime g_app;
 
 /* 保护 ISR 与主循环共享的故障位及使能命令，临界区必须短且可恢复原中断状态。 */
+/* ══ ① 临界区辅助 ═════════════════════════════════════════════════════ */
+
 static uint32_t AppRuntime_EnterCritical(void)
 {
 #if defined(STM32F407xx)
@@ -53,6 +78,8 @@ static void AppRuntime_ExitCritical(uint32_t primask)
     (void)primask;
 #endif
 }
+
+/* ══ ② 模式与参考值工具 ═══════════════════════════════════════════════ */
 
 static bool AppControl_ModeValid(app_mode_t mode)
 {
@@ -118,6 +145,11 @@ static float AppControl_PhaseReferenceFromDc(float dc_voltage_v)
          * APP_INV_SQRT3_F;
 }
 
+/* ══ ③ 安全输出与参考限幅 ═════════════════════════════════════════════ */
+
+/* 参考上限 = (duty_max − duty_min) × Vdc × (1/√6) × 0.95
+ * 推导：SVPWM 线性区最大线电压峰值 = Vdc，对应相电压 RMS = Vdc/√6；
+ * 再乘占空比区间与 5% 余量。母线低时参考会被这里削掉——这是正常限幅。 */
 static float AppControl_LimitPhaseReference(
     const InverterControlConfig *cfg,
     float requested_phase_rms,
@@ -168,6 +200,12 @@ static float AppControl_MaxPhaseMagnitude(const Measurements *measurement)
     return (value > maximum) ? value : maximum;
 }
 
+/* ══ ④ 故障记录器 ═════════════════════════════════════════════════════ */
+
+/* 跳闸前滚动保存三类证据，供事后区分"算错了"还是"量错了"：
+ *   fast_history   触发前逐拍原始码（看采样本身有没有问题）
+ *   previous_control 触发前最后一拍的控制量（看控制器输出）
+ *   cycle_peak_v   历次工频周期的峰值（看是否逐步恶化） */
 static void AppControl_ResetFaultRecorder(AppFaultRecorder *recorder)
 {
     recorder->previous_control.valid = false;
@@ -456,6 +494,8 @@ static void AppControl_CaptureInputOcSnapshot(
     snapshot->valid = true;
 }
 
+/* ══ ⑤ 实例接口 ═══════════════════════════════════════════════════════ */
+
 bool AppControl_Init(AppControl *app)
 {
     const BoardPowerConfig *cfg;
@@ -593,6 +633,24 @@ bool AppControl_SetInverterRunMode(AppControl *app,
     return true;
 }
 
+/* ══ ⑥ ★ 核心：一次 20 kHz 快环 ═══════════════════════════════════════ */
+
+/*
+ * 执行顺序（每一段的边界都有注释标出）：
+ *
+ *   A. 参数与实例校验，准备本拍的基础量
+ *   B. MODE1 特例：用 SET 值替代未接入的 Vdc
+ *   C. 逆变参考：解耦设定 → 回退比例推导 → 按母线降额限幅
+ *   D. 整流使能与就绪条件（含 MODE0 的母线就绪计数）
+ *   E. 保护判断：本拍故障 + 锁存
+ *   F. 状态机推进
+ *   G. 按模式运行逆变/整流控制
+ *   H. 组装输出：占空比 + 两级使能请求
+ *   I. 发布状态快照
+ *
+ * 任何一步失败都不会"跳过"，而是走安全输出（0.5 中性占空比 + 撤销使能），
+ * 由后面的使能请求统一裁决是否真的输出。
+ */
 bool AppControl_Step(AppControl *app,
                      const AdcRawFrame *raw,
                      const AppCommand *command,
@@ -952,6 +1010,9 @@ bool AppControl_Step(AppControl *app,
     return true;
 }
 
+/* ══ ⑦ 单例发布 ═══════════════════════════════════════════════════════ */
+
+/* 把内部状态搬进对外快照。后台任务读取时也会短暂关中断，避免读到半更新值。 */
 static void AppRuntime_UpdatePublic(void)
 {
     /*
@@ -1015,6 +1076,8 @@ static void AppRuntime_UpdatePublic(void)
     g_app.status.rectifier_dc_ready =
         g_app.control.rectifier_dc_ready;
 }
+
+/* ══ ⑧ 单例接口（板级层调用） ═════════════════════════════════════════ */
 
 void App_Init(void)
 {
