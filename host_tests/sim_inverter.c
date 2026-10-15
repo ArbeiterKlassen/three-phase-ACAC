@@ -1,5 +1,5 @@
 /*
- * 三相逆变级（DCAC）的闭环仿真 —— 复现省赛现场"MODE1、母线直入 >60 V、
+ * 三相逆变级（DCAC）的闭环仿真 —— 复现省赛现场"母线直入 >60 V、
  * 输出峰值只有 3 V 多"的现象。
  *
  * 被控对象：三相全桥 + LC 滤波器 + 星形阻性负载
@@ -10,7 +10,7 @@
  *
  * 用法：sim_inverter.exe [pc4_connected]
  *   默认 1：PC4 接到母线（Vdc 实测正常）
- *   传 0  ：PC4 悬空（MODE1 的 unpack 不填 vdc，实测为 0）
+ *   传 0  ：PC4 悬空（本工程不采母线，实测恒为 0）
  */
 
 #include <stdio.h>
@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
     float vca = 0.0f, vcb = 0.0f, vcc = 0.0f;
     uint32_t seq;
 
-    printf("=== DCAC (MODE1) 闭环仿真 ===\n");
+    printf("=== DCAC 闭环仿真 ===\n");
     printf("母线 %.0f V 直入   Lf=%.1f mH  Cf=%.0f uF  R=%.0f ohm/相\n", SIM_VBUS_V, SIM_LF_H * 1000.0f,
            SIM_CF_F * 1e6f, SIM_R_LOAD);
     printf("输出目标: 线电压 %.0f Vrms = %.1f V 峰值\n", cfg->output_line_voltage_rms,
@@ -58,7 +58,6 @@ int main(int argc, char **argv) {
     printf("   t    state pwmOK  |vab|峰值   |vca|峰值   参考相电压rms  gate\n");
 
     App_Init();
-    (void)App_RequestMode(MODE1_INVERTER);
     App_RequestStart();
 
     {
@@ -76,10 +75,11 @@ int main(int argc, char **argv) {
             float vdc_meas = pc4_connected ? SIM_VBUS_V : 0.0f;
             float da, db, dc;
 
-            pairs[0] = Pair(RawOf(&cfg->measurement.iin, 0.0f), RawOf(&cfg->measurement.vin, 0.0f));
+            /* rank1 / rank4 不参与本工程的解包，填中性值即可 */
+            pairs[0] = Pair(2048U, 2048U);
             pairs[1] = Pair(RawOf(&cfg->measurement.ib, ib), RawOf(&cfg->measurement.ia, ia));
             pairs[2] = Pair(RawOf(&cfg->measurement.vab, vab), RawOf(&cfg->measurement.vbc, vbc));
-            pairs[3] = Pair(RawOf(&cfg->measurement.vdc, vdc_meas), RawOf(&cfg->measurement.vin, 0.0f));
+            pairs[3] = Pair(RawOf(&cfg->measurement.vdc, vdc_meas), 0U);
 
             (void)App_ApplyAdcPairs(pairs, seq);
             App_FastStep20kHz();
