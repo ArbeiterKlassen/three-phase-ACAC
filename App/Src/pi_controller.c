@@ -16,16 +16,9 @@
 #include <stddef.h>
 
 /* 把 value 限制到 [low, high] */
-static float PiController_Clamp(float value, float low, float high)
-{
-    if (value > high)
-    {
-        return high;
-    }
-    if (value < low)
-    {
-        return low;
-    }
+static float PiController_Clamp(float value, float low, float high) {
+    if (value > high) return high;
+    if (value < low) return low;
     return value;
 }
 
@@ -34,22 +27,11 @@ static float PiController_Clamp(float value, float low, float high)
  * 内部状态（integrator / error_prev）清零，需配合 Reset 做无扰启动。
  * 返回参数合法。
  */
-bool PiController_Init(PiController *pi,
-                       float kp,
-                       float ki,
-                       float kaw,
-                       float sample_time_s,
-                       float out_min,
-                       float out_max)
-{
-    if ((pi == NULL)
-        || !isfinite(kp) || !isfinite(ki) || !isfinite(kaw)
-        || !isfinite(sample_time_s)
-        || !isfinite(out_min) || !isfinite(out_max)
-        || (ki < 0.0f) || (kaw < 0.0f)
-        || (sample_time_s <= 0.0f)
-        || (out_min >= out_max))
-    {
+bool PiController_Init(PiController *pi, float kp, float ki, float kaw, float sample_time_s, float out_min,
+                       float out_max) {
+    if ((pi == NULL) || !isfinite(kp) || !isfinite(ki) || !isfinite(kaw) || !isfinite(sample_time_s) ||
+        !isfinite(out_min) || !isfinite(out_max) || (ki < 0.0f) || (kaw < 0.0f) || (sample_time_s <= 0.0f) ||
+        (out_min >= out_max)) {
         return false;
     }
 
@@ -69,13 +51,9 @@ bool PiController_Init(PiController *pi,
  * 如果积分器从 0 起步而实际输出需要非零，会使能瞬间产生一个冲击；
  * 传入当前实际输出即可平稳接管。NULL 安全。
  */
-void PiController_Reset(PiController *pi, float output)
-{
-    if (pi != NULL)
-    {
-        pi->integrator = PiController_Clamp(output,
-                                            pi->out_min,
-                                            pi->out_max);
+void PiController_Reset(PiController *pi, float output) {
+    if (pi != NULL) {
+        pi->integrator = PiController_Clamp(output, pi->out_min, pi->out_max);
         pi->error_prev = 0.0f;
     }
 }
@@ -88,42 +66,27 @@ void PiController_Reset(PiController *pi, float output)
  *
  * 返回限幅后的输出；实例或误差无效时返回 0。
  */
-float PiController_Step(PiController *pi, float error)
-{
+float PiController_Step(PiController *pi, float error) {
     float integral_old;
     float unsaturated;
     float output;
 
-    if ((pi == NULL) || !isfinite(error))
-    {
-        return 0.0f;
-    }
+    if ((pi == NULL) || !isfinite(error)) return 0.0f;
 
     /* 积分项用梯形法离散，降低固定采样周期下的相位与幅值误差。 */
     integral_old = pi->integrator;
-    pi->integrator += 0.5f * pi->ki * pi->sample_time_s
-                    * (error + pi->error_prev);
+    pi->integrator += 0.5f * pi->ki * pi->sample_time_s * (error + pi->error_prev);
     unsaturated = pi->kp * error + pi->integrator;
     output = PiController_Clamp(unsaturated, pi->out_min, pi->out_max);
 
     /* 优先使用反算抗饱和；kaw=0 时冻结会加重饱和的积分方向。 */
-    if (output != unsaturated)
-    {
-        if (pi->kaw > 0.0f)
-        {
-            pi->integrator += pi->kaw * pi->sample_time_s
-                            * (output - unsaturated);
-        }
-        else if (((unsaturated > pi->out_max) && (error > 0.0f))
-              || ((unsaturated < pi->out_min) && (error < 0.0f)))
-        {
+    if (output != unsaturated) {
+        if (pi->kaw > 0.0f) pi->integrator += pi->kaw * pi->sample_time_s * (output - unsaturated);
+        else if (((unsaturated > pi->out_max) && (error > 0.0f)) || ((unsaturated < pi->out_min) && (error < 0.0f)))
             pi->integrator = integral_old;
-        }
     }
 
-    pi->integrator = PiController_Clamp(pi->integrator,
-                                        pi->out_min,
-                                        pi->out_max);
+    pi->integrator = PiController_Clamp(pi->integrator, pi->out_min, pi->out_max);
     pi->error_prev = error;
     return output;
 }

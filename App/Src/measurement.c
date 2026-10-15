@@ -25,13 +25,9 @@
  * 单通道标定是否可用：指针非空、零点与增益有限、增益非零、原始码区间有序。
  * 增益为 0 会让整条通道恒输出 0，必须当无效处理。
  */
-static bool ChannelCalibration_Valid(const ChannelCalibration *cal)
-{
-    return (cal != NULL)
-        && isfinite(cal->offset_count)
-        && isfinite(cal->gain)
-        && (cal->gain != 0.0f)
-        && (cal->raw_min < cal->raw_max);
+static bool ChannelCalibration_Valid(const ChannelCalibration *cal) {
+    return (cal != NULL) && isfinite(cal->offset_count) && isfinite(cal->gain) && (cal->gain != 0.0f) &&
+           (cal->raw_min < cal->raw_max);
 }
 
 /*
@@ -47,17 +43,8 @@ static bool ChannelCalibration_Valid(const ChannelCalibration *cal)
  *
  * 返回换算是否成功；失败时不写 *value，由调用方保证输出被清零。
  */
-static bool ChannelCalibration_Apply(const ChannelCalibration *cal,
-                                     uint16_t raw,
-                                     float *value)
-{
-    if (!ChannelCalibration_Valid(cal)
-        || (value == NULL)
-        || (raw < cal->raw_min)
-        || (raw > cal->raw_max))
-    {
-        return false;
-    }
+static bool ChannelCalibration_Apply(const ChannelCalibration *cal, uint16_t raw, float *value) {
+    if (!ChannelCalibration_Valid(cal) || (value == NULL) || (raw < cal->raw_min) || (raw > cal->raw_max)) return false;
 
     /* 核心换算：物理量 = (原始码 − 零点码) × 每码比例
      * gain 里已经含了传感器极性、互感器变比、运放增益、分压比——
@@ -67,37 +54,23 @@ static bool ChannelCalibration_Apply(const ChannelCalibration *cal,
 }
 
 /* 七路全部有效才通过。用于 MODE0 的完整校验 */
-bool Measurement_CalibrationValid(const MeasurementCalibration *cal)
-{
-    return (cal != NULL)
-        && ChannelCalibration_Valid(&cal->iin)
-        && ChannelCalibration_Valid(&cal->vin)
-        && ChannelCalibration_Valid(&cal->ia)
-        && ChannelCalibration_Valid(&cal->ib)
-        && ChannelCalibration_Valid(&cal->vab)
-        && ChannelCalibration_Valid(&cal->vbc)
-        && ChannelCalibration_Valid(&cal->vdc);
+bool Measurement_CalibrationValid(const MeasurementCalibration *cal) {
+    return (cal != NULL) && ChannelCalibration_Valid(&cal->iin) && ChannelCalibration_Valid(&cal->vin) &&
+           ChannelCalibration_Valid(&cal->ia) && ChannelCalibration_Valid(&cal->ib) &&
+           ChannelCalibration_Valid(&cal->vab) && ChannelCalibration_Valid(&cal->vbc) &&
+           ChannelCalibration_Valid(&cal->vdc);
 }
 
 /* 只查逆变四路（Ia/Ib/Vab/Vbc）。Iin/Vin/Vdc 不参与，单测台架没接也不影响 */
-bool Measurement_InverterCalibrationValid(
-    const MeasurementCalibration *cal)
-{
-    return (cal != NULL)
-        && ChannelCalibration_Valid(&cal->ia)
-        && ChannelCalibration_Valid(&cal->ib)
-        && ChannelCalibration_Valid(&cal->vab)
-        && ChannelCalibration_Valid(&cal->vbc);
+bool Measurement_InverterCalibrationValid(const MeasurementCalibration *cal) {
+    return (cal != NULL) && ChannelCalibration_Valid(&cal->ia) && ChannelCalibration_Valid(&cal->ib) &&
+           ChannelCalibration_Valid(&cal->vab) && ChannelCalibration_Valid(&cal->vbc);
 }
 
 /* 只查整流三路（Iin/Vin/Vdc）。三相输出通道不参与 */
-bool Measurement_RectifierCalibrationValid(
-    const MeasurementCalibration *cal)
-{
-    return (cal != NULL)
-        && ChannelCalibration_Valid(&cal->iin)
-        && ChannelCalibration_Valid(&cal->vin)
-        && ChannelCalibration_Valid(&cal->vdc);
+bool Measurement_RectifierCalibrationValid(const MeasurementCalibration *cal) {
+    return (cal != NULL) && ChannelCalibration_Valid(&cal->iin) && ChannelCalibration_Valid(&cal->vin) &&
+           ChannelCalibration_Valid(&cal->vdc);
 }
 
 /*
@@ -116,10 +89,7 @@ bool Measurement_RectifierCalibrationValid(
  * 注意 Rank2 与 Rank3 的"低/高"顺序：与 Rank1 的 Iin/Vin 相反，
  * 这是跟着实际引脚走的，不是笔误。
  */
-static void Measurement_UnpackPairs(const uint32_t pairs[4],
-                                    uint32_t sequence,
-                                    AdcRawFrame *raw)
-{
+static void Measurement_UnpackPairs(const uint32_t pairs[4], uint32_t sequence, AdcRawFrame *raw) {
     raw->iin = (uint16_t)(pairs[0] & 0xFFFFUL);
     raw->vin = (uint16_t)(pairs[0] >> 16);
     /* ADC1/PC0 是 Ib，ADC2/PC1 是 Ia */
@@ -143,39 +113,25 @@ static void Measurement_UnpackPairs(const uint32_t pairs[4],
  * **失败时 out 仍然被填充**（含 sequence），只是 valid=false；
  * 调用方据此走"测量无效"路径而不是拿到垃圾数据。
  */
-bool Measurement_UnpackDualAdcPairs(const uint32_t pairs[4],
-                                    uint32_t sequence,
-                                    uint16_t vin_tolerance_counts,
-                                    AdcRawFrame *out)
-{
+bool Measurement_UnpackDualAdcPairs(const uint32_t pairs[4], uint32_t sequence, uint16_t vin_tolerance_counts,
+                                    AdcRawFrame *out) {
     AdcRawFrame raw = {0};
     uint16_t vin_delta;
 
-    if ((pairs == NULL) || (out == NULL))
-    {
-        return false;
-    }
+    if ((pairs == NULL) || (out == NULL)) return false;
 
     Measurement_UnpackPairs(pairs, sequence, &raw);
     /* 两次 Vin 采样的绝对差（无符号减法，先比大小防止回绕） */
-    vin_delta = (raw.vin > raw.vin_diag)
-        ? (uint16_t)(raw.vin - raw.vin_diag)
-        : (uint16_t)(raw.vin_diag - raw.vin);
+    vin_delta = (raw.vin > raw.vin_diag) ? (uint16_t)(raw.vin - raw.vin_diag) : (uint16_t)(raw.vin_diag - raw.vin);
     raw.valid = vin_delta <= vin_tolerance_counts;
     *out = raw;
     return raw.valid;
 }
 
-bool Measurement_UnpackRectifierAdcPairs(const uint32_t pairs[4],
-                                         uint32_t sequence,
-                                         AdcRawFrame *out)
-{
+bool Measurement_UnpackRectifierAdcPairs(const uint32_t pairs[4], uint32_t sequence, AdcRawFrame *out) {
     AdcRawFrame raw = {0};
 
-    if ((pairs == NULL) || (out == NULL))
-    {
-        return false;
-    }
+    if ((pairs == NULL) || (out == NULL)) return false;
 
     /*
      * MODE2 uses PA5/Iin, the first PC5/Vin sample and PC4/Vdc.
@@ -190,16 +146,10 @@ bool Measurement_UnpackRectifierAdcPairs(const uint32_t pairs[4],
     return true;
 }
 
-bool Measurement_UnpackInverterAdcPairs(const uint32_t pairs[4],
-                                        uint32_t sequence,
-                                        AdcRawFrame *out)
-{
+bool Measurement_UnpackInverterAdcPairs(const uint32_t pairs[4], uint32_t sequence, AdcRawFrame *out) {
     AdcRawFrame raw = {0};
 
-    if ((pairs == NULL) || (out == NULL))
-    {
-        return false;
-    }
+    if ((pairs == NULL) || (out == NULL)) return false;
 
     /*
      * Inverter-only hardware uses PC0/PC1 for Ib/Ia and PC2/PC3 for
@@ -229,17 +179,14 @@ bool Measurement_UnpackInverterAdcPairs(const uint32_t pairs[4],
  * 这三个式子来自 vab = va − vb、vbc = vb − vc 加上 va+vb+vc = 0 联立。
  * 注意它们假定三相平衡——不平衡负载下会有误差，这是采两路线电压的固有代价。
  */
-static bool Measurement_ReconstructThreePhase(Measurements *m,
-                                              uint32_t sequence)
-{
+static bool Measurement_ReconstructThreePhase(Measurements *m, uint32_t sequence) {
     m->ic = -(m->ia + m->ib);
     m->vca = -(m->vab + m->vbc);
     m->va = (2.0f * m->vab + m->vbc) / 3.0f;
     m->vb = (m->vbc - m->vab) / 3.0f;
     m->vc = -(m->vab + 2.0f * m->vbc) / 3.0f;
     m->sequence = sequence;
-    m->valid = isfinite(m->ic) && isfinite(m->vca)
-            && isfinite(m->va) && isfinite(m->vb) && isfinite(m->vc);
+    m->valid = isfinite(m->ic) && isfinite(m->vca) && isfinite(m->va) && isfinite(m->vb) && isfinite(m->vc);
     return m->valid;
 }
 
@@ -248,32 +195,21 @@ static bool Measurement_ReconstructThreePhase(Measurements *m,
  * 任一路越界或换算非有限 → 整体判无效（*out 被清零）。
  * 返回最终 valid。
  */
-bool Measurement_Convert(const MeasurementCalibration *cal,
-                         const AdcRawFrame *raw,
-                         Measurements *out)
-{
+bool Measurement_Convert(const MeasurementCalibration *cal, const AdcRawFrame *raw, Measurements *out) {
     Measurements m = {0};
     bool ok;
 
-    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid)
-    {
-        if (out != NULL)
-        {
-            *out = m;
-        }
+    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid) {
+        if (out != NULL) *out = m;
         return false;
     }
 
-    ok = ChannelCalibration_Apply(&cal->iin, raw->iin, &m.iin)
-      && ChannelCalibration_Apply(&cal->vin, raw->vin, &m.vin)
-      && ChannelCalibration_Apply(&cal->ia, raw->ia, &m.ia)
-      && ChannelCalibration_Apply(&cal->ib, raw->ib, &m.ib)
-      && ChannelCalibration_Apply(&cal->vab, raw->vab, &m.vab)
-      && ChannelCalibration_Apply(&cal->vbc, raw->vbc, &m.vbc)
-      && ChannelCalibration_Apply(&cal->vdc, raw->vdc, &m.vdc);
+    ok = ChannelCalibration_Apply(&cal->iin, raw->iin, &m.iin) &&
+         ChannelCalibration_Apply(&cal->vin, raw->vin, &m.vin) && ChannelCalibration_Apply(&cal->ia, raw->ia, &m.ia) &&
+         ChannelCalibration_Apply(&cal->ib, raw->ib, &m.ib) && ChannelCalibration_Apply(&cal->vab, raw->vab, &m.vab) &&
+         ChannelCalibration_Apply(&cal->vbc, raw->vbc, &m.vbc) && ChannelCalibration_Apply(&cal->vdc, raw->vdc, &m.vdc);
 
-    if (ok)
-    {
+    if (ok) {
         /* 只采了两相电流与两路线电压，第三相在这里补出来 */
         (void)Measurement_ReconstructThreePhase(&m, raw->sequence);
     }
@@ -287,29 +223,19 @@ bool Measurement_Convert(const MeasurementCalibration *cal,
  * Iin/Vin/Vdc 显式置 0 —— 由 app_control.c 决定 MODE1 下母线用什么值
  * （默认用用户 SET 值），这里不臆造。
  */
-bool Measurement_ConvertInverter(const MeasurementCalibration *cal,
-                                 const AdcRawFrame *raw,
-                                 Measurements *out)
-{
+bool Measurement_ConvertInverter(const MeasurementCalibration *cal, const AdcRawFrame *raw, Measurements *out) {
     Measurements m = {0};
     bool ok;
 
-    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid)
-    {
-        if (out != NULL)
-        {
-            *out = m;
-        }
+    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid) {
+        if (out != NULL) *out = m;
         return false;
     }
 
-    ok = ChannelCalibration_Apply(&cal->ia, raw->ia, &m.ia)
-      && ChannelCalibration_Apply(&cal->ib, raw->ib, &m.ib)
-      && ChannelCalibration_Apply(&cal->vab, raw->vab, &m.vab)
-      && ChannelCalibration_Apply(&cal->vbc, raw->vbc, &m.vbc);
+    ok = ChannelCalibration_Apply(&cal->ia, raw->ia, &m.ia) && ChannelCalibration_Apply(&cal->ib, raw->ib, &m.ib) &&
+         ChannelCalibration_Apply(&cal->vab, raw->vab, &m.vab) && ChannelCalibration_Apply(&cal->vbc, raw->vbc, &m.vbc);
 
-    if (ok)
-    {
+    if (ok) {
         m.iin = 0.0f;
         m.vin = 0.0f;
         m.vdc = 0.0f;
@@ -324,28 +250,19 @@ bool Measurement_ConvertInverter(const MeasurementCalibration *cal,
  * MODE2 专用换算：只算 Iin/Vin/Vdc，三相输出量保持 0。
  * 单级整流台架上三相通道本来就悬空，不参与有效性判断。
  */
-bool Measurement_ConvertRectifier(const MeasurementCalibration *cal,
-                                  const AdcRawFrame *raw,
-                                  Measurements *out)
-{
+bool Measurement_ConvertRectifier(const MeasurementCalibration *cal, const AdcRawFrame *raw, Measurements *out) {
     Measurements m = {0};
     bool ok;
 
-    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid)
-    {
-        if (out != NULL)
-        {
-            *out = m;
-        }
+    if ((cal == NULL) || (raw == NULL) || (out == NULL) || !raw->valid) {
+        if (out != NULL) *out = m;
         return false;
     }
 
-    ok = ChannelCalibration_Apply(&cal->iin, raw->iin, &m.iin)
-      && ChannelCalibration_Apply(&cal->vin, raw->vin, &m.vin)
-      && ChannelCalibration_Apply(&cal->vdc, raw->vdc, &m.vdc);
+    ok = ChannelCalibration_Apply(&cal->iin, raw->iin, &m.iin) &&
+         ChannelCalibration_Apply(&cal->vin, raw->vin, &m.vin) && ChannelCalibration_Apply(&cal->vdc, raw->vdc, &m.vdc);
 
-    if (ok)
-    {
+    if (ok) {
         m.sequence = raw->sequence;
         m.valid = isfinite(m.iin) && isfinite(m.vin) && isfinite(m.vdc);
     }
@@ -362,12 +279,10 @@ bool Measurement_ConvertRectifier(const MeasurementCalibration *cal,
  * 的相电压峰值。用等功率约定的话系数不同，两者不能混用。
  * 输入无效时返回零向量。
  */
-AlphaBeta Measurement_VoltageAlphaBeta(const Measurements *m)
-{
+AlphaBeta Measurement_VoltageAlphaBeta(const Measurements *m) {
     AlphaBeta out = {0};
 
-    if ((m != NULL) && m->valid)
-    {
+    if ((m != NULL) && m->valid) {
         /* 幅值不变 Clarke 变换，平衡三相正弦量的 αβ 峰值保持不变。 */
         out.alpha = (2.0f / 3.0f) * (m->va - 0.5f * (m->vb + m->vc));
         out.beta = APP_INV_SQRT3_F * (m->vb - m->vc);
@@ -376,12 +291,10 @@ AlphaBeta Measurement_VoltageAlphaBeta(const Measurements *m)
 }
 
 /* 三相电流的幅值不变 Clarke 变换，与电压同式，单位 A */
-AlphaBeta Measurement_CurrentAlphaBeta(const Measurements *m)
-{
+AlphaBeta Measurement_CurrentAlphaBeta(const Measurements *m) {
     AlphaBeta out = {0};
 
-    if ((m != NULL) && m->valid)
-    {
+    if ((m != NULL) && m->valid) {
         /* 与电压环使用相同的幅值不变 Clarke 约定。 */
         out.alpha = (2.0f / 3.0f) * (m->ia - 0.5f * (m->ib + m->ic));
         out.beta = APP_INV_SQRT3_F * (m->ib - m->ic);

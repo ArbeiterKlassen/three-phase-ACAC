@@ -20,7 +20,7 @@
 
 /* 把 value 限制到 [low, high]。 */
 static float RectifierControl_Clamp(float value, float low, float high) {
-    return value<low?low:(value>high?high:value);
+    return value < low ? low : (value > high ? high : value);
 }
 
 /* 输出清零 + PWM 置中性（生成安全命令；真正关门极在 board_runtime.c）。 */
@@ -68,7 +68,8 @@ static void RectifierControl_UpdateInputRms(RectifierControl *control, float vin
         RectifierControl_InvalidateInputRms(control);
         return;
     }
-    if (control->vin_square_count >= RECTIFIER_VIN_RMS_WINDOW_SAMPLES) oldest_square = control->vin_square_window[control->vin_square_index];
+    if (control->vin_square_count >= RECTIFIER_VIN_RMS_WINDOW_SAMPLES)
+        oldest_square = control->vin_square_window[control->vin_square_index];
     else control->vin_square_count++;
     control->vin_square_window[control->vin_square_index] = vin_square;
     control->vin_square_sum += vin_square - oldest_square;
@@ -103,69 +104,36 @@ static void RectifierControl_UpdateInputRms(RectifierControl *control, float vin
 bool RectifierControl_Init(RectifierControl *control, const RectifierControlConfig *cfg) {
     float w0;
     float slow_sample_time;
-    if ((control == NULL) || (cfg == NULL)
-        || !isfinite(cfg->sample_time_s)
-        || !isfinite(cfg->line_frequency_hz)
-        || !isfinite(cfg->rms_filter_time_constant_s)
-        || !isfinite(cfg->input_voltage_rms_min_v)
-        || !isfinite(cfg->dc_voltage_max_v)
-        || !isfinite(cfg->dc_reference_slew_v_per_s)
-        || !isfinite(cfg->dc_ready_tolerance_v)
-        || !isfinite(cfg->current_rms_max_a)
-        || !isfinite(cfg->inductor_voltage_limit_v)
-        || !isfinite(cfg->dc_voltage_min_v)
-        || !isfinite(cfg->current_reference_sign)
-        || !isfinite(cfg->bridge_polarity)
-        || (cfg->sample_time_s <= 0.0f)
-        || (cfg->line_frequency_hz <= 0.0f)
-        || (cfg->outer_loop_divider == 0U)
-        || (cfg->rms_filter_time_constant_s <= 0.0f)
-        || (cfg->input_voltage_rms_min_v <= 0.0f)
-        || (cfg->dc_voltage_max_v <= cfg->dc_voltage_min_v)
-        || (cfg->dc_reference_slew_v_per_s <= 0.0f)
-        || (cfg->dc_ready_tolerance_v <= 0.0f)
-        || (cfg->dc_ready_confirm_samples == 0U)
-        || (cfg->current_rms_max_a <= 0.0f)
-        || (cfg->inductor_voltage_limit_v <= 0.0f)
-        || (fabsf(cfg->current_reference_sign) < 0.5f)
-        || (fabsf(cfg->bridge_polarity) < 0.5f)
-        || (cfg->duty_min < 0.0f)
-        || (cfg->duty_max > 1.0f)
-        || (cfg->duty_min >= cfg->duty_max)
-        || (fabsf(cfg->sample_time_s * cfg->line_frequency_hz
-                  * (float)RECTIFIER_VIN_RMS_WINDOW_SAMPLES - 1.0f)
-            > (0.5f * cfg->sample_time_s
-               * cfg->line_frequency_hz)))
-    {
+    if ((control == NULL) || (cfg == NULL) || !isfinite(cfg->sample_time_s) || !isfinite(cfg->line_frequency_hz) ||
+        !isfinite(cfg->rms_filter_time_constant_s) || !isfinite(cfg->input_voltage_rms_min_v) ||
+        !isfinite(cfg->dc_voltage_max_v) || !isfinite(cfg->dc_reference_slew_v_per_s) ||
+        !isfinite(cfg->dc_ready_tolerance_v) || !isfinite(cfg->current_rms_max_a) ||
+        !isfinite(cfg->inductor_voltage_limit_v) || !isfinite(cfg->dc_voltage_min_v) ||
+        !isfinite(cfg->current_reference_sign) || !isfinite(cfg->bridge_polarity) || (cfg->sample_time_s <= 0.0f) ||
+        (cfg->line_frequency_hz <= 0.0f) || (cfg->outer_loop_divider == 0U) ||
+        (cfg->rms_filter_time_constant_s <= 0.0f) || (cfg->input_voltage_rms_min_v <= 0.0f) ||
+        (cfg->dc_voltage_max_v <= cfg->dc_voltage_min_v) || (cfg->dc_reference_slew_v_per_s <= 0.0f) ||
+        (cfg->dc_ready_tolerance_v <= 0.0f) || (cfg->dc_ready_confirm_samples == 0U) ||
+        (cfg->current_rms_max_a <= 0.0f) || (cfg->inductor_voltage_limit_v <= 0.0f) ||
+        (fabsf(cfg->current_reference_sign) < 0.5f) || (fabsf(cfg->bridge_polarity) < 0.5f) || (cfg->duty_min < 0.0f) ||
+        (cfg->duty_max > 1.0f) || (cfg->duty_min >= cfg->duty_max) ||
+        (fabsf(cfg->sample_time_s * cfg->line_frequency_hz * (float)RECTIFIER_VIN_RMS_WINDOW_SAMPLES - 1.0f) >
+         (0.5f * cfg->sample_time_s * cfg->line_frequency_hz))) {
         return false;
     }
 
     *control = (RectifierControl){0};
     control->cfg = *cfg;
-    w0 = 2.0f * APP_PI_F * cfg->line_frequency_hz;  /* 谐振角频率 [rad/s] */
+    w0 = 2.0f * APP_PI_F * cfg->line_frequency_hz; /* 谐振角频率 [rad/s] */
     slow_sample_time = cfg->sample_time_s * (float)cfg->outer_loop_divider;
 
-    if (!PiController_Init(&control->dc_pi,
-                           cfg->dc_pi_kp,
-                           cfg->dc_pi_ki,
-                           cfg->dc_pi_kaw,
-                           slow_sample_time,
-                           0.0f,
-                           cfg->current_rms_max_a)
-        || !QprController_Init(&control->current_qpr,
-                               cfg->current_qpr_kp,
-                               cfg->current_qpr_kr,
-                               w0,
-                               cfg->current_qpr_bandwidth_rad_s,
-                               cfg->sample_time_s,
-                               -cfg->inductor_voltage_limit_v,
-                               cfg->inductor_voltage_limit_v)
-        || !NotchFilter_Init(&control->dc_notch,
-                             2.0f * w0,
-                             cfg->notch_zero_damping,
-                             cfg->notch_pole_damping,
-                             slow_sample_time))
-    {
+    if (!PiController_Init(&control->dc_pi, cfg->dc_pi_kp, cfg->dc_pi_ki, cfg->dc_pi_kaw, slow_sample_time, 0.0f,
+                           cfg->current_rms_max_a) ||
+        !QprController_Init(&control->current_qpr, cfg->current_qpr_kp, cfg->current_qpr_kr, w0,
+                            cfg->current_qpr_bandwidth_rad_s, cfg->sample_time_s, -cfg->inductor_voltage_limit_v,
+                            cfg->inductor_voltage_limit_v) ||
+        !NotchFilter_Init(&control->dc_notch, 2.0f * w0, cfg->notch_zero_damping, cfg->notch_pole_damping,
+                          slow_sample_time)) {
         *control = (RectifierControl){0};
         return false;
     }
@@ -197,9 +165,8 @@ void RectifierControl_Reset(RectifierControl *control) {
  * 未初始化或非有限值静默忽略。
  */
 void RectifierControl_SetDcReference(RectifierControl *control, float dc_voltage) {
-    if ((control != NULL) && control->initialized && isfinite(dc_voltage)) {
+    if ((control != NULL) && control->initialized && isfinite(dc_voltage))
         control->dc_reference_target_v = RectifierControl_Clamp(dc_voltage, 0.0f, control->cfg.dc_voltage_max_v);
-    }
 }
 
 /*
@@ -241,7 +208,8 @@ static void RectifierControl_UpdateSlow(RectifierControl *control, const Measure
  *   - 输入 RMS 窗口没填满时 out->valid 为 false 但返回 true——
  *     状态机预热阶段会看到这个组合，属正常。
  */
-bool RectifierControl_Step(RectifierControl *control, const Measurements *measurement, bool enabled, RectifierControlOutput *out) {
+bool RectifierControl_Step(RectifierControl *control, const Measurements *measurement, bool enabled,
+                           RectifierControlOutput *out) {
     float dc_step;
     float error;
     float inductor_voltage;
@@ -252,11 +220,8 @@ bool RectifierControl_Step(RectifierControl *control, const Measurements *measur
     RectifierControl_ClearOutput(out);
     out->input_voltage_rms = control->vin_rms_v;
     out->input_rms_valid = control->vin_rms_valid;
-    if ((measurement == NULL) || !measurement->valid
-        || !isfinite(measurement->vin)
-        || !isfinite(measurement->iin)
-        || !isfinite(measurement->vdc))
-    {
+    if ((measurement == NULL) || !measurement->valid || !isfinite(measurement->vin) || !isfinite(measurement->iin) ||
+        !isfinite(measurement->vdc)) {
         /* 测量失效：RMS 窗口作废重攒；未使能时不算错误（见函数头）。 */
         RectifierControl_InvalidateInputRms(control);
         out->input_voltage_rms = 0.0f;
@@ -284,7 +249,8 @@ bool RectifierControl_Step(RectifierControl *control, const Measurements *measur
         /* 软启动步长 = 斜率 × 快环周期（60 V/s × 50 us = 3 mV/拍，
          * 62 V 约需 1.03 s），逐拍逼近目标。 */
         dc_step = control->cfg.dc_reference_slew_v_per_s * control->cfg.sample_time_s;
-        control->dc_reference_v = RectifierControl_Clamp(control->dc_reference_v + dc_step, 0.0f, control->dc_reference_target_v);
+        control->dc_reference_v =
+            RectifierControl_Clamp(control->dc_reference_v + dc_step, 0.0f, control->dc_reference_target_v);
     }
     /*
      * The 100 Hz notch and DC PI update every 20 fast samples at 1 kHz.
@@ -301,16 +267,16 @@ bool RectifierControl_Step(RectifierControl *control, const Measurements *measur
         control->soft_start_initialized = false;
         return true;
     }
-    if ((measurement->vdc < control->cfg.dc_voltage_min_v) || (control->vin_rms_v < control->cfg.input_voltage_rms_min_v)) {
+    if ((measurement->vdc < control->cfg.dc_voltage_min_v) ||
+        (control->vin_rms_v < control->cfg.input_voltage_rms_min_v)) {
         /* 母线或输入电压不到下限：拒绝给门极命令（让上层报故障/等待）。 */
         return false;
     }
 
     /* 与输入电压同相的正弦电流参考：Iref = 幅值 × vin / Vin_rms。
      * 同相 → 单位功率因数；符号由 current_reference_sign 定死为 +1。 */
-    out->current_reference = control->cfg.current_reference_sign
-                           * control->current_rms_a
-                           * measurement->vin / control->vin_rms_v;
+    out->current_reference =
+        control->cfg.current_reference_sign * control->current_rms_a * measurement->vin / control->vin_rms_v;
     /*
      * 外环未请求电流（软启动爬坡段，或母线已高于参考）时只关断门极
      *（gates_enabled=false，桥臂高阻、仅剩二极管通路），调制仍按
@@ -329,15 +295,13 @@ bool RectifierControl_Step(RectifierControl *control, const Measurements *measur
     out->bridge_voltage_command = control->cfg.bridge_polarity * (measurement->vin - inductor_voltage);
     /* 归一化调制比 m = 桥压/Vdc，交给单极性 SPWM 生成两桥臂占空比。 */
     modulation = out->bridge_voltage_command / measurement->vdc;
-    out->valid = RectifierPwm_Generate(modulation,
-                                       control->cfg.duty_min,
-                                       control->cfg.duty_max,
-                                       &out->pwm);
+    out->valid = RectifierPwm_Generate(modulation, control->cfg.duty_min, control->cfg.duty_max, &out->pwm);
     if (out->valid && out->gates_enabled) {
         /* 门极关断时桥压由二极管决定，不按 PWM 公式反灌电流环状态。
          * 反推"实际施加的电感电压"：Vin − m·Vdc/极性（PWM 被限幅时
          * m 与指令不再相等，必须用实际值回灌，否则谐振器积累虚账）。 */
-        inductor_voltage_applied = measurement->vin - (out->pwm.modulation * measurement->vdc) / control->cfg.bridge_polarity;
+        inductor_voltage_applied =
+            measurement->vin - (out->pwm.modulation * measurement->vdc) / control->cfg.bridge_polarity;
         QprController_TrackOutput(&control->current_qpr, error, inductor_voltage_applied);
     }
     return out->valid;

@@ -217,3 +217,6 @@ gcc -std=c11 -I App\Inc host_tests\sim_inverter.c App\Src\*.c -lm -o sim_inv.exe
 - 结构体**每个字段行尾注释**，标明单位与含义
 - 文件头用简短中文说明职责，不写版权套话
 - 函数保持单一职责；超过 100 行先考虑拆分
+- 版式由根目录的 `.clang-format` 统一（大括号跟随语句、单语句分支可省大括号、
+  行宽 120），改完代码跑一次 `clang-format -i` 即可：
+  `python -m pip install clang-format`

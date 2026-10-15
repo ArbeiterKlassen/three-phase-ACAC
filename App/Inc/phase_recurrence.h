@@ -11,8 +11,7 @@
 #include "app_types.h"
 
 /* 相位递推状态。 */
-typedef struct
-{
+typedef struct {
     float sin_value;        // 当前 sin(θ)
     float cos_value;        // 当前 cos(θ)
     float sin_step;         // 每拍 sin 增量（由频率决定）
@@ -24,10 +23,7 @@ typedef struct
 
 // 初始化。frequency_hz 为基波频率 [Hz]，可为负（相序反向）
 // initial_angle_rad 为初始电角度 [rad]。满足 |f|·Ts < 0.5 的奈奎斯特约束才返回 true
-bool PhaseRecurrence_Init(PhaseRecurrence *phase,
-                          float frequency_hz,
-                          float sample_time_s,
-                          float initial_angle_rad);
+bool PhaseRecurrence_Init(PhaseRecurrence *phase, float frequency_hz, float sample_time_s, float initial_angle_rad);
 
 // 只改频率，不动当前相角。用于运行中切频
 bool PhaseRecurrence_SetFrequency(PhaseRecurrence *phase, float frequency_hz);
@@ -44,5 +40,4 @@ void PhaseRecurrence_Step(PhaseRecurrence *phase);
 
 // 按当前相位生成正相序三相正弦量，peak 为峰值
 // 返回 A=sinθ、B=sin(θ−120°)、C=sin(θ+120°)；输入无效时返回全零
-ThreePhase PhaseRecurrence_GetThreePhase(const PhaseRecurrence *phase,
-                                         float peak);
+ThreePhase PhaseRecurrence_GetThreePhase(const PhaseRecurrence *phase, float peak);

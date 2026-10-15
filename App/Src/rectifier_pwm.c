@@ -12,24 +12,15 @@
 #include <stddef.h>
 
 /* 把 value 限制到 [low, high] */
-static float RectifierPwm_Clamp(float value, float low, float high)
-{
-    if (value > high)
-    {
-        return high;
-    }
-    if (value < low)
-    {
-        return low;
-    }
+static float RectifierPwm_Clamp(float value, float low, float high) {
+    if (value > high) return high;
+    if (value < low) return low;
     return value;
 }
 
 /* 两个桥臂置 50% 中性、清空其余字段。NULL 安全 */
-void RectifierPwm_SetNeutral(RectifierPwmOutput *out)
-{
-    if (out != NULL)
-    {
+void RectifierPwm_SetNeutral(RectifierPwmOutput *out) {
+    if (out != NULL) {
         *out = (RectifierPwmOutput){0};
         out->duty_a = 0.5f;
         out->duty_b = 0.5f;
@@ -45,25 +36,15 @@ void RectifierPwm_SetNeutral(RectifierPwmOutput *out)
  *
  * 返回参数有效且生成成功；失败时输出保持中性值。
  */
-bool RectifierPwm_Generate(float modulation,
-                           float duty_min,
-                           float duty_max,
-                           RectifierPwmOutput *out)
-{
+bool RectifierPwm_Generate(float modulation, float duty_min, float duty_max, RectifierPwmOutput *out) {
     float requested_a;
     float requested_b;
 
-    if (out == NULL)
-    {
-        return false;
-    }
+    if (out == NULL) return false;
     RectifierPwm_SetNeutral(out);
 
-    if (!isfinite(modulation)
-        || !isfinite(duty_min) || !isfinite(duty_max)
-        || (duty_min < 0.0f) || (duty_max > 1.0f)
-        || (duty_min >= 0.5f) || (duty_max <= 0.5f))
-    {
+    if (!isfinite(modulation) || !isfinite(duty_min) || !isfinite(duty_max) || (duty_min < 0.0f) || (duty_max > 1.0f) ||
+        (duty_min >= 0.5f) || (duty_max <= 0.5f)) {
         return false;
     }
 

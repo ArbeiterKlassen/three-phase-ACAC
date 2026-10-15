@@ -20,32 +20,25 @@
 #include "app_control.h"
 #include "app_config.h"
 
-#define SIM_VBUS_V      61.0f     /* 直入的直流母线 */
-#define SIM_LF_H        0.0010f   /* 滤波电感 1 mH */
-#define SIM_CF_F        10.0e-6f  /* 滤波电容 10 uF（星形） */
-#define SIM_R_LOAD      120.0f    /* 每相负载电阻 */
-#define SIM_SECONDS     3.0f
+#define SIM_VBUS_V 61.0f  /* 直入的直流母线 */
+#define SIM_LF_H 0.0010f  /* 滤波电感 1 mH */
+#define SIM_CF_F 10.0e-6f /* 滤波电容 10 uF（星形） */
+#define SIM_R_LOAD 120.0f /* 每相负载电阻 */
+#define SIM_SECONDS 3.0f
 
-static uint16_t RawOf(const ChannelCalibration *cal, float physical)
-{
+static uint16_t RawOf(const ChannelCalibration *cal, float physical) {
     float raw = cal->offset_count + physical / cal->gain;
 
-    if (raw < 0.0f) {
-        raw = 0.0f;
-    }
-    if (raw > 4095.0f) {
-        raw = 4095.0f;
-    }
+    if (raw < 0.0f) raw = 0.0f;
+    if (raw > 4095.0f) raw = 4095.0f;
     return (uint16_t)(raw + 0.5f);
 }
 
-static uint32_t Pair(uint16_t adc1, uint16_t adc2)
-{
+static uint32_t Pair(uint16_t adc1, uint16_t adc2) {
     return ((uint32_t)adc1 & 0xFFFFu) | (((uint32_t)adc2 & 0xFFFFu) << 16);
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     const BoardPowerConfig *cfg = BoardPower_GetConfig();
     const float ts = cfg->inverter.sample_time_s;
     const uint32_t total = (uint32_t)(SIM_SECONDS / ts);
@@ -57,10 +50,10 @@ int main(int argc, char **argv)
     uint32_t seq;
 
     printf("=== DCAC (MODE1) 闭环仿真 ===\n");
-    printf("母线 %.0f V 直入   Lf=%.1f mH  Cf=%.0f uF  R=%.0f ohm/相\n",
-           SIM_VBUS_V, SIM_LF_H * 1000.0f, SIM_CF_F * 1e6f, SIM_R_LOAD);
-    printf("输出目标: 线电压 %.0f Vrms = %.1f V 峰值\n",
-           cfg->output_line_voltage_rms, cfg->output_line_voltage_rms * 1.41421f);
+    printf("母线 %.0f V 直入   Lf=%.1f mH  Cf=%.0f uF  R=%.0f ohm/相\n", SIM_VBUS_V, SIM_LF_H * 1000.0f,
+           SIM_CF_F * 1e6f, SIM_R_LOAD);
+    printf("输出目标: 线电压 %.0f Vrms = %.1f V 峰值\n", cfg->output_line_voltage_rms,
+           cfg->output_line_voltage_rms * 1.41421f);
     printf("PC4(Vdc 实测): %s\n\n", pc4_connected ? "接通" : "悬空");
     printf("   t    state pwmOK  |vab|峰值   |vca|峰值   参考相电压rms  gate\n");
 
@@ -83,14 +76,10 @@ int main(int argc, char **argv)
             float vdc_meas = pc4_connected ? SIM_VBUS_V : 0.0f;
             float da, db, dc;
 
-            pairs[0] = Pair(RawOf(&cfg->measurement.iin, 0.0f),
-                            RawOf(&cfg->measurement.vin, 0.0f));
-            pairs[1] = Pair(RawOf(&cfg->measurement.ib, ib),
-                            RawOf(&cfg->measurement.ia, ia));
-            pairs[2] = Pair(RawOf(&cfg->measurement.vab, vab),
-                            RawOf(&cfg->measurement.vbc, vbc));
-            pairs[3] = Pair(RawOf(&cfg->measurement.vdc, vdc_meas),
-                            RawOf(&cfg->measurement.vin, 0.0f));
+            pairs[0] = Pair(RawOf(&cfg->measurement.iin, 0.0f), RawOf(&cfg->measurement.vin, 0.0f));
+            pairs[1] = Pair(RawOf(&cfg->measurement.ib, ib), RawOf(&cfg->measurement.ia, ia));
+            pairs[2] = Pair(RawOf(&cfg->measurement.vab, vab), RawOf(&cfg->measurement.vbc, vbc));
+            pairs[3] = Pair(RawOf(&cfg->measurement.vdc, vdc_meas), RawOf(&cfg->measurement.vin, 0.0f));
 
             (void)App_ApplyAdcPairs(pairs, seq);
             App_FastStep20kHz();
@@ -98,10 +87,10 @@ int main(int argc, char **argv)
             pwm = App_GetPwmCommand();
             status = App_GetStatus();
 
-            da = pwm->inverter_a; db = pwm->inverter_b; dc = pwm->inverter_c;
-            if (!pwm->inverter_enable_request) {
-                da = db = dc = 0.5f;      /* 门极关断 → 桥臂输出中点 */
-            }
+            da = pwm->inverter_a;
+            db = pwm->inverter_b;
+            dc = pwm->inverter_c;
+            if (!pwm->inverter_enable_request) da = db = dc = 0.5f; /* 门极关断 → 桥臂输出中点 */
 
             /* LC 滤波器 + 星形负载 */
             {
@@ -121,20 +110,20 @@ int main(int argc, char **argv)
             if (fabsf(vab) > peak_ab) peak_ab = fabsf(vab);
             if (fabsf(vca) > peak_ca) peak_ca = fabsf(vca);
             if (++win >= win_len) {
-                printf("%6.2f   %3d    %d    %7.2f     %7.2f      %6.2f        %d\n",
-                       t, (int)status->state, (int)status->pwm_allowed,
-                       peak_ab, peak_ca, status->output_line_voltage_reference_v,
+                printf("%6.2f   %3d    %d    %7.2f     %7.2f      %6.2f        %d\n", t, (int)status->state,
+                       (int)status->pwm_allowed, peak_ab, peak_ca, status->output_line_voltage_reference_v,
                        (int)pwm->inverter_enable_request);
-                win = 0U; peak_ab = 0.0f; peak_ca = 0.0f;
+                win = 0U;
+                peak_ab = 0.0f;
+                peak_ca = 0.0f;
             }
         }
     }
 
     {
         const AppStatus *status = App_GetStatus();
-        printf("\n结束: state=%d faults=0x%08lX  输出参考=%.2f V(rms 线)\n",
-               (int)status->state, (unsigned long)status->faults,
-               status->output_line_voltage_reference_v);
+        printf("\n结束: state=%d faults=0x%08lX  输出参考=%.2f V(rms 线)\n", (int)status->state,
+               (unsigned long)status->faults, status->output_line_voltage_reference_v);
     }
     return 0;
 }

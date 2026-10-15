@@ -21,18 +21,15 @@
 
 static int g_failed;
 
-#define TEST_CHECK(expr)                                                     \
-    do                                                                       \
-    {                                                                        \
-        if (!(expr))                                                         \
-        {                                                                    \
-            printf("  FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr);         \
-            return false;                                                    \
-        }                                                                    \
+#define TEST_CHECK(expr)                                                                                               \
+    do {                                                                                                               \
+        if (!(expr)) {                                                                                                 \
+            printf("  FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr);                                                   \
+            return false;                                                                                              \
+        }                                                                                                              \
     } while (0)
 
-static ChannelCalibration Test_Cal(float offset, float gain)
-{
+static ChannelCalibration Test_Cal(float offset, float gain) {
     ChannelCalibration cal;
     cal.offset_count = offset;
     cal.gain = gain;
@@ -41,8 +38,7 @@ static ChannelCalibration Test_Cal(float offset, float gain)
     return cal;
 }
 
-static bool Test_Measurement(void)
-{
+static bool Test_Measurement(void) {
     MeasurementCalibration cal;
     AdcRawFrame raw = {0};
     Measurements m;
@@ -77,9 +73,7 @@ static bool Test_Measurement(void)
     TEST_CHECK(TEST_NEAR(m.vdc, 100.0f, 1.0e-6f));
     voltage = Measurement_VoltageAlphaBeta(&m);
     TEST_CHECK(TEST_NEAR(voltage.alpha, m.va, 1.0e-4f));
-    TEST_CHECK(TEST_NEAR(voltage.beta,
-                         APP_INV_SQRT3_F * (m.vb - m.vc),
-                         1.0e-4f));
+    TEST_CHECK(TEST_NEAR(voltage.beta, APP_INV_SQRT3_F * (m.vb - m.vc), 1.0e-4f));
 
     raw.valid = false;
     TEST_CHECK(!Measurement_Convert(&cal, &raw, &m));
@@ -87,8 +81,7 @@ static bool Test_Measurement(void)
     return true;
 }
 
-static bool Test_AdcRankMapping(void)
-{
+static bool Test_AdcRankMapping(void) {
     uint32_t pair[4];
     AdcRawFrame raw;
 
@@ -124,8 +117,7 @@ static bool Test_AdcRankMapping(void)
     return true;
 }
 
-static bool Test_ModeSpecificAdcDiagnostics(void)
-{
+static bool Test_ModeSpecificAdcDiagnostics(void) {
     const AppStatus *status;
     uint32_t pair[4];
 
@@ -142,19 +134,16 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     TEST_CHECK(status->mode == MODE2_RECTIFIER);
     TEST_CHECK(status->iin_raw == 2085U);
     TEST_CHECK(TEST_NEAR(status->iin_a,
-                         ((float)2085U
-                          - g_board_power_config.measurement.iin.offset_count)
-                         * g_board_power_config.measurement.iin.gain,
+                         ((float)2085U - g_board_power_config.measurement.iin.offset_count) *
+                             g_board_power_config.measurement.iin.gain,
                          1.0e-6f));
-    TEST_CHECK((status->faults
-                & PROTECTION_FAULT_MEASUREMENT) == 0U);
+    TEST_CHECK((status->faults & PROTECTION_FAULT_MEASUREMENT) == 0U);
 
     App_Init();
     TEST_CHECK(App_RequestMode(MODE0_FULL));
     TEST_CHECK(!App_ApplyAdcPairs(pair, 202U));
     App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) != 0U);
+    TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) != 0U);
     TEST_CHECK(!App_GetStatus()->pwm_allowed);
 
     App_Init();
@@ -162,8 +151,7 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     pair[0] = ((uint32_t)2100U << 16) | 0U;
     TEST_CHECK(App_ApplyAdcPairs(pair, 203U));
     App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) == 0U);
+    TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) == 0U);
     /*
      * 测量无效的确认窗口是 100 ms（2000 拍）：上电时母线电容的充电浪涌
      * 会让电流通道短暂越限，那不是传感器故障。窗口内只计数不锁存，
@@ -172,17 +160,14 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     {
         uint32_t k;
 
-        for (k = 0U; k < 1998U; k++)
-        {
+        for (k = 0U; k < 1998U; k++) {
             TEST_CHECK(App_ApplyAdcPairs(pair, 1000U + k));
             App_FastStep20kHz();
-            TEST_CHECK((App_GetStatus()->faults
-                        & PROTECTION_FAULT_MEASUREMENT) == 0U);
+            TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) == 0U);
         }
         TEST_CHECK(App_ApplyAdcPairs(pair, 1000U + k));
         App_FastStep20kHz();
-        TEST_CHECK((App_GetStatus()->faults
-                    & PROTECTION_FAULT_MEASUREMENT) != 0U);
+        TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) != 0U);
         TEST_CHECK(!App_GetStatus()->pwm_allowed);
     }
 
@@ -191,22 +176,18 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     pair[0] = ((uint32_t)0U << 16) | 2085U;
     TEST_CHECK(App_ApplyAdcPairs(pair, 205U));
     App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) == 0U);
+    TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) == 0U);
     {
         uint32_t k;
 
-        for (k = 0U; k < 1998U; k++)
-        {
+        for (k = 0U; k < 1998U; k++) {
             TEST_CHECK(App_ApplyAdcPairs(pair, 3000U + k));
             App_FastStep20kHz();
-            TEST_CHECK((App_GetStatus()->faults
-                        & PROTECTION_FAULT_MEASUREMENT) == 0U);
+            TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) == 0U);
         }
         TEST_CHECK(App_ApplyAdcPairs(pair, 3000U + k));
         App_FastStep20kHz();
-        TEST_CHECK((App_GetStatus()->faults
-                    & PROTECTION_FAULT_MEASUREMENT) != 0U);
+        TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) != 0U);
         TEST_CHECK(!App_GetStatus()->pwm_allowed);
     }
 
@@ -216,29 +197,24 @@ static bool Test_ModeSpecificAdcDiagnostics(void)
     pair[3] = ((uint32_t)4095U << 16) | 4095U;
     TEST_CHECK(App_ApplyAdcPairs(pair, 207U));
     App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) == 0U);
+    TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) == 0U);
     {
         uint32_t k;
 
-        for (k = 0U; k < 1998U; k++)
-        {
+        for (k = 0U; k < 1998U; k++) {
             TEST_CHECK(App_ApplyAdcPairs(pair, 5000U + k));
             App_FastStep20kHz();
-            TEST_CHECK((App_GetStatus()->faults
-                        & PROTECTION_FAULT_MEASUREMENT) == 0U);
+            TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) == 0U);
         }
         TEST_CHECK(App_ApplyAdcPairs(pair, 5000U + k));
         App_FastStep20kHz();
-        TEST_CHECK((App_GetStatus()->faults
-                    & PROTECTION_FAULT_MEASUREMENT) != 0U);
+        TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) != 0U);
         TEST_CHECK(!App_GetStatus()->pwm_allowed);
     }
     return true;
 }
 
-static bool Test_InverterMeasurementPath(void)
-{
+static bool Test_InverterMeasurementPath(void) {
     MeasurementCalibration cal = {0};
     uint32_t pair[4];
     AdcRawFrame raw;
@@ -279,8 +255,7 @@ static bool Test_InverterMeasurementPath(void)
     return true;
 }
 
-static bool Test_RectifierMeasurementPath(void)
-{
+static bool Test_RectifierMeasurementPath(void) {
     MeasurementCalibration cal = {0};
     AdcRawFrame raw = {0};
     Measurements m;
@@ -315,23 +290,16 @@ static bool Test_RectifierMeasurementPath(void)
     return true;
 }
 
-static bool Test_PhaseAtFrequency(float frequency_hz,
-                                  unsigned int sample_count)
-{
+static bool Test_PhaseAtFrequency(float frequency_hz, unsigned int sample_count) {
     PhaseRecurrence phase;
     ThreePhase abc;
     unsigned int i;
     float norm;
 
-    TEST_CHECK(PhaseRecurrence_Init(&phase, frequency_hz,
-                                    50.0e-6f, 0.0f));
-    for (i = 0U; i < sample_count; i++)
-    {
-        PhaseRecurrence_Step(&phase);
-    }
+    TEST_CHECK(PhaseRecurrence_Init(&phase, frequency_hz, 50.0e-6f, 0.0f));
+    for (i = 0U; i < sample_count; i++) PhaseRecurrence_Step(&phase);
 
-    norm = phase.sin_value * phase.sin_value
-         + phase.cos_value * phase.cos_value;
+    norm = phase.sin_value * phase.sin_value + phase.cos_value * phase.cos_value;
     TEST_CHECK(TEST_NEAR(norm, 1.0f, 3.0e-5f));
     TEST_CHECK(TEST_NEAR(phase.sin_value, 0.0f, 3.0e-5f));
     TEST_CHECK(TEST_NEAR(phase.cos_value, 1.0f, 3.0e-5f));
@@ -342,22 +310,17 @@ static bool Test_PhaseAtFrequency(float frequency_hz,
     return true;
 }
 
-static bool Test_PhaseRecurrence(void)
-{
+static bool Test_PhaseRecurrence(void) {
     PhaseRecurrence phase;
     ThreePhase abc;
     unsigned int i;
     float norm;
 
     TEST_CHECK(PhaseRecurrence_Init(&phase, 50.0f, 50.0e-6f, 0.0f));
-    for (i = 0U; i < 400U; i++)
-    {
-        PhaseRecurrence_Step(&phase);
-    }
+    for (i = 0U; i < 400U; i++) PhaseRecurrence_Step(&phase);
     TEST_CHECK(TEST_NEAR(phase.sin_value, 0.0f, 2.0e-5f));
     TEST_CHECK(TEST_NEAR(phase.cos_value, 1.0f, 2.0e-5f));
-    norm = phase.sin_value * phase.sin_value
-         + phase.cos_value * phase.cos_value;
+    norm = phase.sin_value * phase.sin_value + phase.cos_value * phase.cos_value;
     TEST_CHECK(TEST_NEAR(norm, 1.0f, 2.0e-5f));
 
     abc = PhaseRecurrence_GetThreePhase(&phase, 10.0f);
@@ -371,31 +334,24 @@ static bool Test_PhaseRecurrence(void)
     return true;
 }
 
-static bool Test_PiAntiWindup(void)
-{
+static bool Test_PiAntiWindup(void) {
     PiController pi;
     float out = 0.0f;
     unsigned int i;
 
-    TEST_CHECK(PiController_Init(&pi, 0.5f, 20.0f, 50.0f,
-                                 1.0e-3f, -1.0f, 1.0f));
-    for (i = 0U; i < 500U; i++)
-    {
+    TEST_CHECK(PiController_Init(&pi, 0.5f, 20.0f, 50.0f, 1.0e-3f, -1.0f, 1.0f));
+    for (i = 0U; i < 500U; i++) {
         out = PiController_Step(&pi, 10.0f);
         TEST_CHECK((out >= -1.0f) && (out <= 1.0f));
     }
     TEST_CHECK(TEST_NEAR(out, 1.0f, 1.0e-6f));
-    for (i = 0U; i < 200U; i++)
-    {
-        out = PiController_Step(&pi, -1.0f);
-    }
+    for (i = 0U; i < 200U; i++) out = PiController_Step(&pi, -1.0f);
     TEST_CHECK(out < 0.0f);
     TEST_CHECK(fabsf(pi.integrator) <= 1.0f);
     return true;
 }
 
-static float Test_QprRms(float frequency_hz)
-{
+static float Test_QprRms(float frequency_hz) {
     QprController qpr;
     float sum = 0.0f;
     float input;
@@ -403,20 +359,12 @@ static float Test_QprRms(float frequency_hz)
     unsigned int i;
     unsigned int count = 0U;
 
-    if (!QprController_Init(&qpr, 0.0f, 10.0f,
-                            2.0f * APP_PI_F * 50.0f, 5.0f,
-                            50.0e-6f, -100.0f, 100.0f))
-    {
-        return -1.0f;
-    }
+    if (!QprController_Init(&qpr, 0.0f, 10.0f, 2.0f * APP_PI_F * 50.0f, 5.0f, 50.0e-6f, -100.0f, 100.0f)) return -1.0f;
 
-    for (i = 0U; i < 40000U; i++)
-    {
-        input = sinf(2.0f * APP_PI_F * frequency_hz
-                   * 50.0e-6f * (float)i);
+    for (i = 0U; i < 40000U; i++) {
+        input = sinf(2.0f * APP_PI_F * frequency_hz * 50.0e-6f * (float)i);
         output = QprController_Step(&qpr, input);
-        if (i >= 20000U)
-        {
+        if (i >= 20000U) {
             sum += output * output;
             count++;
         }
@@ -424,8 +372,7 @@ static float Test_QprRms(float frequency_hz)
     return sqrtf(sum / (float)count);
 }
 
-static bool Test_Qpr(void)
-{
+static bool Test_Qpr(void) {
     float at_resonance = Test_QprRms(50.0f);
     float away = Test_QprRms(250.0f);
     QprController qpr;
@@ -434,16 +381,12 @@ static bool Test_Qpr(void)
 
     TEST_CHECK(at_resonance > 5.0f);
     TEST_CHECK(at_resonance > 8.0f * away);
-    TEST_CHECK(QprController_Init(&qpr, 1.0f, 20.0f,
-                                  2.0f * APP_PI_F * 50.0f, 5.0f,
-                                  50.0e-6f, -100.0f, 100.0f));
-    for (i = 0U; i < 2000U; i++)
-    {
+    TEST_CHECK(QprController_Init(&qpr, 1.0f, 20.0f, 2.0f * APP_PI_F * 50.0f, 5.0f, 50.0e-6f, -100.0f, 100.0f));
+    for (i = 0U; i < 2000U; i++) {
         (void)QprController_Step(&qpr, 5.0f);
         QprController_TrackOutput(&qpr, 5.0f, 0.0f);
     }
-    for (i = 0U; i < 40000U; i++)
-    {
+    for (i = 0U; i < 40000U; i++) {
         output = QprController_Step(&qpr, 0.0f);
         QprController_TrackOutput(&qpr, 0.0f, output);
     }
@@ -451,8 +394,7 @@ static bool Test_Qpr(void)
     return true;
 }
 
-static float Test_NotchRms(float frequency_hz)
-{
+static float Test_NotchRms(float frequency_hz) {
     NotchFilter notch;
     float sum = 0.0f;
     float input;
@@ -460,18 +402,11 @@ static float Test_NotchRms(float frequency_hz)
     unsigned int i;
     unsigned int count = 0U;
 
-    if (!NotchFilter_Init(&notch, 2.0f * APP_PI_F * 100.0f,
-                          0.01f, 0.5f, 1.0e-3f))
-    {
-        return -1.0f;
-    }
-    for (i = 0U; i < 5000U; i++)
-    {
-        input = sinf(2.0f * APP_PI_F * frequency_hz
-                   * 1.0e-3f * (float)i);
+    if (!NotchFilter_Init(&notch, 2.0f * APP_PI_F * 100.0f, 0.01f, 0.5f, 1.0e-3f)) return -1.0f;
+    for (i = 0U; i < 5000U; i++) {
+        input = sinf(2.0f * APP_PI_F * frequency_hz * 1.0e-3f * (float)i);
         output = NotchFilter_Step(&notch, input);
-        if (i >= 3000U)
-        {
+        if (i >= 3000U) {
             sum += output * output;
             count++;
         }
@@ -479,8 +414,7 @@ static float Test_NotchRms(float frequency_hz)
     return sqrtf(sum / (float)count);
 }
 
-static bool Test_Notch(void)
-{
+static bool Test_Notch(void) {
     float center = Test_NotchRms(100.0f);
     float passband = Test_NotchRms(20.0f);
 
@@ -490,20 +424,16 @@ static bool Test_Notch(void)
     return true;
 }
 
-static bool Test_Modulation(void)
-{
+static bool Test_Modulation(void) {
     SvpwmOutput sv;
     RectifierPwmOutput rect;
 
-    TEST_CHECK(Svpwm_Generate(10.0f, 0.0f, 100.0f,
-                              0.0f, 1.0f, &sv));
+    TEST_CHECK(Svpwm_Generate(10.0f, 0.0f, 100.0f, 0.0f, 1.0f, &sv));
     TEST_CHECK(sv.sector == 1U);
-    TEST_CHECK(TEST_NEAR((sv.duty_a - sv.duty_b) * 100.0f,
-                         15.0f, 1.0e-4f));
+    TEST_CHECK(TEST_NEAR((sv.duty_a - sv.duty_b) * 100.0f, 15.0f, 1.0e-4f));
     TEST_CHECK(TEST_NEAR(sv.duty_b, sv.duty_c, 1.0e-6f));
 
-    TEST_CHECK(Svpwm_Generate(1000.0f, 500.0f, 100.0f,
-                              0.02f, 0.98f, &sv));
+    TEST_CHECK(Svpwm_Generate(1000.0f, 500.0f, 100.0f, 0.02f, 0.98f, &sv));
     TEST_CHECK(sv.saturated);
     TEST_CHECK((sv.duty_a >= 0.02f) && (sv.duty_a <= 0.98f));
     TEST_CHECK((sv.duty_b >= 0.02f) && (sv.duty_b <= 0.98f));
@@ -531,8 +461,7 @@ static bool Test_Modulation(void)
     return true;
 }
 
-static InverterControlConfig Test_InverterConfig(void)
-{
+static InverterControlConfig Test_InverterConfig(void) {
     InverterControlConfig cfg = {0};
     cfg.sample_time_s = 50.0e-6f;
     cfg.output_frequency_hz = 60.0f;
@@ -553,8 +482,7 @@ static InverterControlConfig Test_InverterConfig(void)
     return cfg;
 }
 
-static bool Test_InverterCascade(void)
-{
+static bool Test_InverterCascade(void) {
     InverterControl control;
     InverterControlConfig cfg = Test_InverterConfig();
     InverterControlOutput out;
@@ -568,18 +496,14 @@ static bool Test_InverterCascade(void)
     TEST_CHECK(out.valid && out.pwm.valid);
     TEST_CHECK(out.reference.beta < -10.0f);
     TEST_CHECK(out.current_reference.beta < -1.0f);
-    TEST_CHECK(fabsf(out.voltage_command.beta)
-               > fabsf(out.current_reference.beta));
-    TEST_CHECK(fabsf(out.current_reference.beta)
-               <= cfg.current_reference_limit_a);
+    TEST_CHECK(fabsf(out.voltage_command.beta) > fabsf(out.current_reference.beta));
+    TEST_CHECK(fabsf(out.current_reference.beta) <= cfg.current_reference_limit_a);
     TEST_CHECK(InverterControl_SetFrequency(&control, 30.0f));
-    TEST_CHECK(TEST_NEAR(control.cfg.output_frequency_hz,
-                         30.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(control.cfg.output_frequency_hz, 30.0f, 1.0e-6f));
     return true;
 }
 
-static bool Test_InverterOpenLoop(void)
-{
+static bool Test_InverterOpenLoop(void) {
     InverterControl first;
     InverterControl second;
     InverterControlOutput out_first;
@@ -614,35 +538,21 @@ static bool Test_InverterOpenLoop(void)
     second.current_beta_qpr.e1 = -4.0f;
     saved_qpr_state = first.voltage_alpha_qpr.y1;
 
-    TEST_CHECK(InverterControl_StepOpenLoop(
-        &first, &m_first, true, &out_first));
-    TEST_CHECK(InverterControl_StepOpenLoop(
-        &second, &m_second, true, &out_second));
+    TEST_CHECK(InverterControl_StepOpenLoop(&first, &m_first, true, &out_first));
+    TEST_CHECK(InverterControl_StepOpenLoop(&second, &m_second, true, &out_second));
     TEST_CHECK(out_first.valid && out_first.pwm.valid);
-    TEST_CHECK(TEST_NEAR(first.reference_rms,
-                         cfg.reference_slew_v_per_s
-                             * cfg.sample_time_s,
-                         1.0e-7f));
-    TEST_CHECK(TEST_NEAR(out_first.voltage_command.alpha,
-                         out_first.reference.alpha, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(out_first.voltage_command.beta,
-                         out_first.reference.beta, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(out_first.current_reference.alpha,
-                         0.0f, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(out_first.current_reference.beta,
-                         0.0f, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(out_first.pwm.duty_a,
-                         out_second.pwm.duty_a, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(out_first.pwm.duty_b,
-                         out_second.pwm.duty_b, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(out_first.pwm.duty_c,
-                         out_second.pwm.duty_c, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(first.voltage_alpha_qpr.y1,
-                         saved_qpr_state, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(first.reference_rms, cfg.reference_slew_v_per_s * cfg.sample_time_s, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(out_first.voltage_command.alpha, out_first.reference.alpha, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(out_first.voltage_command.beta, out_first.reference.beta, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(out_first.current_reference.alpha, 0.0f, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(out_first.current_reference.beta, 0.0f, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(out_first.pwm.duty_a, out_second.pwm.duty_a, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(out_first.pwm.duty_b, out_second.pwm.duty_b, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(out_first.pwm.duty_c, out_second.pwm.duty_c, 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(first.voltage_alpha_qpr.y1, saved_qpr_state, 1.0e-7f));
 
     cfg.reference_slew_v_per_s = 1.0e6f;
-    for (i = 0U; i < 2U; i++)
-    {
+    for (i = 0U; i < 2U; i++) {
         InverterControl sweep;
         InverterControlOutput sweep_out;
         Measurements sweep_m = {0};
@@ -652,26 +562,17 @@ static bool Test_InverterOpenLoop(void)
         sweep_m.valid = true;
         sweep_m.vdc = vdc;
         TEST_CHECK(InverterControl_Init(&sweep, &cfg));
-        InverterControl_SetReference(
-            &sweep,
-            vdc * APP_INVERTER_OUTPUT_LINE_RMS_RATIO
-                * APP_INV_SQRT3_F);
-        for (sample = 0U; sample < 400U; sample++)
-        {
-            TEST_CHECK(InverterControl_StepOpenLoop(
-                &sweep, &sweep_m, true, &sweep_out));
+        InverterControl_SetReference(&sweep, vdc * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F);
+        for (sample = 0U; sample < 400U; sample++) {
+            TEST_CHECK(InverterControl_StepOpenLoop(&sweep, &sweep_m, true, &sweep_out));
             TEST_CHECK(!sweep_out.pwm.saturated);
-            TEST_CHECK((sweep_out.pwm.duty_a >= cfg.duty_min)
-                    && (sweep_out.pwm.duty_a <= cfg.duty_max));
-            TEST_CHECK((sweep_out.pwm.duty_b >= cfg.duty_min)
-                    && (sweep_out.pwm.duty_b <= cfg.duty_max));
-            TEST_CHECK((sweep_out.pwm.duty_c >= cfg.duty_min)
-                    && (sweep_out.pwm.duty_c <= cfg.duty_max));
+            TEST_CHECK((sweep_out.pwm.duty_a >= cfg.duty_min) && (sweep_out.pwm.duty_a <= cfg.duty_max));
+            TEST_CHECK((sweep_out.pwm.duty_b >= cfg.duty_min) && (sweep_out.pwm.duty_b <= cfg.duty_max));
+            TEST_CHECK((sweep_out.pwm.duty_c >= cfg.duty_min) && (sweep_out.pwm.duty_c <= cfg.duty_max));
         }
     }
 
-    TEST_CHECK(InverterControl_StepOpenLoop(
-        &first, &m_first, false, &out_first));
+    TEST_CHECK(InverterControl_StepOpenLoop(&first, &m_first, false, &out_first));
     TEST_CHECK(TEST_NEAR(first.reference_rms, 0.0f, 1.0e-7f));
     TEST_CHECK(TEST_NEAR(out_first.pwm.duty_a, 0.5f, 1.0e-7f));
     TEST_CHECK(TEST_NEAR(out_first.pwm.duty_b, 0.5f, 1.0e-7f));
@@ -679,8 +580,7 @@ static bool Test_InverterOpenLoop(void)
     return true;
 }
 
-static RectifierControlConfig Test_RectifierConfig(void)
-{
+static RectifierControlConfig Test_RectifierConfig(void) {
     RectifierControlConfig cfg = {0};
     cfg.sample_time_s = 50.0e-6f;
     cfg.line_frequency_hz = 50.0f;
@@ -709,8 +609,7 @@ static RectifierControlConfig Test_RectifierConfig(void)
     return cfg;
 }
 
-static bool Test_RectifierControl(void)
-{
+static bool Test_RectifierControl(void) {
     RectifierControl control;
     RectifierControlConfig cfg = Test_RectifierConfig();
     RectifierControlOutput out;
@@ -725,36 +624,27 @@ static bool Test_RectifierControl(void)
     RectifierControl_SetDcReference(&control, 150.0f);
 
     /* 先在PWM关闭状态建立输入RMS估计。 */
-    for (i = 0U; i < RECTIFIER_VIN_RMS_WINDOW_SAMPLES - 1U; i++)
-    {
+    for (i = 0U; i < RECTIFIER_VIN_RMS_WINDOW_SAMPLES - 1U; i++) {
         time = cfg.sample_time_s * (float)i;
-        m.vin = 100.0f * 1.41421356237f
-              * cosf(2.0f * APP_PI_F * 50.0f * time);
+        m.vin = 100.0f * 1.41421356237f * cosf(2.0f * APP_PI_F * 50.0f * time);
         TEST_CHECK(RectifierControl_Step(&control, &m, false, &out));
         TEST_CHECK(!control.vin_rms_valid);
         TEST_CHECK(!out.input_rms_valid);
     }
     i = RECTIFIER_VIN_RMS_WINDOW_SAMPLES - 1U;
     time = cfg.sample_time_s * (float)i;
-    m.vin = 100.0f * 1.41421356237f
-          * cosf(2.0f * APP_PI_F * 50.0f * time);
+    m.vin = 100.0f * 1.41421356237f * cosf(2.0f * APP_PI_F * 50.0f * time);
     TEST_CHECK(RectifierControl_Step(&control, &m, false, &out));
     TEST_CHECK(control.vin_rms_valid);
     TEST_CHECK(out.input_rms_valid);
     TEST_CHECK(TEST_NEAR(control.vin_rms_v, 100.0f, 0.05f));
 
-    for (i = 0U; i < 1000U; i++)
-    {
-        time = cfg.sample_time_s
-             * (float)(RECTIFIER_VIN_RMS_WINDOW_SAMPLES + i);
-        m.vin = 100.0f * 1.41421356237f
-              * cosf(2.0f * APP_PI_F * 50.0f * time);
+    for (i = 0U; i < 1000U; i++) {
+        time = cfg.sample_time_s * (float)(RECTIFIER_VIN_RMS_WINDOW_SAMPLES + i);
+        m.vin = 100.0f * 1.41421356237f * cosf(2.0f * APP_PI_F * 50.0f * time);
         TEST_CHECK(RectifierControl_Step(&control, &m, true, &out));
         TEST_CHECK((out.current_reference * m.vin) >= -1.0e-4f);
-        if ((out.current_reference * m.vin) > 1.0e-3f)
-        {
-            saw_positive_power = true;
-        }
+        if ((out.current_reference * m.vin) > 1.0e-3f) saw_positive_power = true;
     }
 
     /* Accelerated test slew: 2000 V/s reaches 100 V after 50 ms. */
@@ -769,41 +659,27 @@ static bool Test_RectifierControl(void)
     return true;
 }
 
-static bool Test_ProductionRectifierParameters(void)
-{
+static bool Test_ProductionRectifierParameters(void) {
     const RectifierControlConfig *cfg = &g_board_power_config.rectifier;
 
     TEST_CHECK(TEST_NEAR(cfg->sample_time_s, 50.0e-6f, 1.0e-9f));
     TEST_CHECK(TEST_NEAR(cfg->line_frequency_hz, 50.0f, 1.0e-6f));
     TEST_CHECK(cfg->outer_loop_divider == 20U);
-    TEST_CHECK(TEST_NEAR(
-        cfg->sample_time_s * cfg->line_frequency_hz
-            * (float)RECTIFIER_VIN_RMS_WINDOW_SAMPLES,
-        1.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(cfg->sample_time_s * cfg->line_frequency_hz * (float)RECTIFIER_VIN_RMS_WINDOW_SAMPLES, 1.0f,
+                         1.0e-6f));
     TEST_CHECK(TEST_NEAR(cfg->dc_pi_kp, 1.0f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(cfg->dc_pi_ki, 1.0f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(cfg->current_rms_max_a, 3.8f, 1.0e-6f));
-    TEST_CHECK(TEST_NEAR(
-        g_board_power_config.protection.input_current_abs_max_a,
-        5.6f, 1.0e-6f));
-    TEST_CHECK(TEST_NEAR(
-        g_board_power_config.protection.input_voltage_abs_max_v,
-        65.0f, 1.0e-6f));
-    TEST_CHECK(TEST_NEAR(
-        g_board_power_config.protection.dc_voltage_max_v,
-        66.0f, 1.0e-6f));
-    TEST_CHECK(TEST_NEAR(
-        cfg->dc_reference_slew_v_per_s, 60.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(g_board_power_config.protection.input_current_abs_max_a, 5.6f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(g_board_power_config.protection.input_voltage_abs_max_v, 65.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(g_board_power_config.protection.dc_voltage_max_v, 66.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(cfg->dc_reference_slew_v_per_s, 60.0f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(cfg->current_qpr_kp, 5.0f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(cfg->current_qpr_kr, 60.0f, 1.0e-6f));
-    TEST_CHECK(TEST_NEAR(
-        cfg->current_qpr_bandwidth_rad_s, 5.0f, 1.0e-6f));
-    TEST_CHECK(TEST_NEAR(
-        cfg->inductor_voltage_limit_v, 1200.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(cfg->current_qpr_bandwidth_rad_s, 5.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(cfg->inductor_voltage_limit_v, 1200.0f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(cfg->notch_zero_damping, 0.0f, 1.0e-7f));
-    TEST_CHECK(TEST_NEAR(
-        cfg->notch_pole_damping,
-        50.0f / (4.0f * APP_PI_F * 100.0f), 1.0e-7f));
+    TEST_CHECK(TEST_NEAR(cfg->notch_pole_damping, 50.0f / (4.0f * APP_PI_F * 100.0f), 1.0e-7f));
     TEST_CHECK(cfg->current_reference_sign > 0.0f);
     TEST_CHECK(TEST_NEAR(cfg->bridge_polarity, 1.0f, 1.0e-7f));
     TEST_CHECK(cfg->dc_ready_confirm_samples == 1000U);
@@ -812,8 +688,7 @@ static bool Test_ProductionRectifierParameters(void)
     return true;
 }
 
-static ProtectionConfig Test_ProtectionConfig(void)
-{
+static ProtectionConfig Test_ProtectionConfig(void) {
     ProtectionConfig cfg;
     cfg.input_current_abs_max_a = 10.0f;
     cfg.phase_current_abs_max_a = 10.0f;
@@ -825,8 +700,7 @@ static ProtectionConfig Test_ProtectionConfig(void)
     return cfg;
 }
 
-static bool Test_Protection(void)
-{
+static bool Test_Protection(void) {
     Protection protection;
     ProtectionConfig cfg = Test_ProtectionConfig();
     Measurements m = {0};
@@ -846,125 +720,100 @@ static bool Test_Protection(void)
     {
         uint32_t k;
 
-        for (k = 0U; k < 1999U; k++)
-        {
-            TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                            true, false, false)
-                        & PROTECTION_FAULT_MEASUREMENT) == 0UL);
+        for (k = 0U; k < 1999U; k++) {
+            TEST_CHECK(
+                (Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_MEASUREMENT) == 0UL);
         }
-        TEST_CHECK(protection.measurement_invalid_count
-                   == (uint16_t)1999U);
-        TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                        true, false, false)
-                    & PROTECTION_FAULT_MEASUREMENT) != 0UL);
+        TEST_CHECK(protection.measurement_invalid_count == (uint16_t)1999U);
+        TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_MEASUREMENT) !=
+                   0UL);
     }
     m.valid = true;
     m.sequence++;
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     TEST_CHECK(protection.measurement_invalid_count == 0U);
     TEST_CHECK(Protection_ClearLatched(&protection));
 
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     /* One isolated input-current spike must not latch a fault. */
     m.iin = 11.0f;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_INPUT_OVERCURRENT) == 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_INPUT_OVERCURRENT) ==
+               0UL);
     TEST_CHECK(protection.input_oc_count == 1U);
     m.iin = 0.0f;
     m.sequence++;
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     TEST_CHECK(protection.input_oc_count == 0U);
 
     /* Two consecutive input-current excursions must latch the fault. */
     m.iin = 11.0f;
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_INPUT_OVERCURRENT) == 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_INPUT_OVERCURRENT) ==
+               0UL);
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_INPUT_OVERCURRENT) != 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_INPUT_OVERCURRENT) !=
+               0UL);
     TEST_CHECK(!Protection_ClearLatched(&protection));
     m.iin = 0.0f;
     m.sequence++;
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     TEST_CHECK(Protection_ClearLatched(&protection));
     TEST_CHECK(protection.latched_faults == 0UL);
 
     /* One isolated input-voltage spike must not latch a fault. */
     m.vin = 301.0f;
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_INPUT_OVERVOLTAGE) == 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_INPUT_OVERVOLTAGE) ==
+               0UL);
     TEST_CHECK(protection.input_ov_count == 1U);
     m.vin = 0.0f;
     m.sequence++;
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     TEST_CHECK(protection.input_ov_count == 0U);
 
     /* Two consecutive input-voltage excursions must latch the fault. */
     m.vin = 301.0f;
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_INPUT_OVERVOLTAGE) == 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_INPUT_OVERVOLTAGE) ==
+               0UL);
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_INPUT_OVERVOLTAGE) != 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_INPUT_OVERVOLTAGE) !=
+               0UL);
     m.vin = 0.0f;
     m.sequence++;
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     TEST_CHECK(Protection_ClearLatched(&protection));
 
     /* One isolated output-voltage excursion must not latch a fault. */
     m.va = 101.0f;
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) == 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) ==
+               0UL);
     TEST_CHECK(protection.output_ov_count == 1U);
     m.va = 0.0f;
     m.sequence++;
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     TEST_CHECK(protection.output_ov_count == 0U);
 
     /* Two consecutive excursions must retain the original protection. */
     m.va = 101.0f;
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) == 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) ==
+               0UL);
     m.sequence++;
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) != 0UL);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) !=
+               0UL);
     m.va = 0.0f;
     m.sequence++;
-    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m,
-                                   true, false, false) == 0UL);
+    TEST_CHECK(Protection_Evaluate(&protection, &cfg, &m, true, false, false) == 0UL);
     TEST_CHECK(Protection_ClearLatched(&protection));
 
-    (void)Protection_Evaluate(&protection, &cfg, &m,
-                              true, false, false);
-    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m,
-                                    true, false, false)
-                & PROTECTION_FAULT_SAMPLE_STALE) != 0UL);
+    (void)Protection_Evaluate(&protection, &cfg, &m, true, false, false);
+    TEST_CHECK((Protection_Evaluate(&protection, &cfg, &m, true, false, false) & PROTECTION_FAULT_SAMPLE_STALE) != 0UL);
     return true;
 }
 
-static bool Test_PowerState(void)
-{
+static bool Test_PowerState(void) {
     PowerStateMachine machine;
     PowerStateConfig cfg = {2U, 2U, 2U};
     PowerStateInput in = {0};
@@ -1028,8 +877,7 @@ static bool Test_PowerState(void)
     return true;
 }
 
-static control_config_t Test_ValidInverterBoardConfig(void)
-{
+static control_config_t Test_ValidInverterBoardConfig(void) {
     control_config_t cfg = g_board_power_config;
 
     cfg.config_valid = true;
@@ -1049,8 +897,7 @@ static control_config_t Test_ValidInverterBoardConfig(void)
     return cfg;
 }
 
-static control_config_t Test_ValidFullBoardConfig(void)
-{
+static control_config_t Test_ValidFullBoardConfig(void) {
     control_config_t cfg = g_board_power_config;
 
     cfg.config_valid = true;
@@ -1070,32 +917,18 @@ static control_config_t Test_ValidFullBoardConfig(void)
     return cfg;
 }
 
-static uint16_t Test_RawFromPhysical(const ChannelCalibration *cal,
-                                     float value)
-{
+static uint16_t Test_RawFromPhysical(const ChannelCalibration *cal, float value) {
     float counts = cal->offset_count + value / cal->gain;
 
-    if (counts <= 0.0f)
-    {
-        return 0U;
-    }
-    if (counts >= 65535.0f)
-    {
-        return UINT16_MAX;
-    }
+    if (counts <= 0.0f) return 0U;
+    if (counts >= 65535.0f) return UINT16_MAX;
     return (uint16_t)(counts + 0.5f);
 }
 
-static void Test_SetFullRawFrame(const control_config_t *cfg,
-                                 AdcRawFrame *raw,
-                                 uint32_t sequence,
-                                 float vin_rms,
-                                 float vdc)
-{
+static void Test_SetFullRawFrame(const control_config_t *cfg, AdcRawFrame *raw, uint32_t sequence, float vin_rms,
+                                 float vdc) {
     float time = cfg->rectifier.sample_time_s * (float)(sequence - 1U);
-    float vin = 1.41421356237f * vin_rms
-              * cosf(2.0f * APP_PI_F
-                     * cfg->rectifier.line_frequency_hz * time);
+    float vin = 1.41421356237f * vin_rms * cosf(2.0f * APP_PI_F * cfg->rectifier.line_frequency_hz * time);
 
     *raw = (AdcRawFrame){0};
     raw->iin = Test_RawFromPhysical(&cfg->measurement.iin, 0.0f);
@@ -1110,8 +943,7 @@ static void Test_SetFullRawFrame(const control_config_t *cfg,
     raw->valid = true;
 }
 
-static bool Test_InverterOnlyAppFlow(void)
-{
+static bool Test_InverterOnlyAppFlow(void) {
     control_config_t cfg = Test_ValidInverterBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1138,13 +970,10 @@ static bool Test_InverterOnlyAppFlow(void)
     TEST_CHECK(!AppControl_SetMode(&app, MODE2_RECTIFIER));
     TEST_CHECK(AppControl_SetMode(&app, MODE1_INVERTER));
     TEST_CHECK(!AppControl_SetMode(&app, (app_mode_t)3));
-    TEST_CHECK(AppControl_SetInverterRunMode(
-        &app, INVERTER_OPEN_LOOP));
+    TEST_CHECK(AppControl_SetInverterRunMode(&app, INVERTER_OPEN_LOOP));
     TEST_CHECK(app.inverter_run_mode == INVERTER_OPEN_LOOP);
-    TEST_CHECK(!AppControl_SetInverterRunMode(
-        &app, (inverter_run_mode_t)2));
-    TEST_CHECK(AppControl_SetInverterRunMode(
-        &app, INVERTER_CLOSED_LOOP));
+    TEST_CHECK(!AppControl_SetInverterRunMode(&app, (inverter_run_mode_t)2));
+    TEST_CHECK(AppControl_SetInverterRunMode(&app, INVERTER_CLOSED_LOOP));
 
     raw.ia = 2000U;
     raw.ib = 2000U;
@@ -1159,8 +988,7 @@ static bool Test_InverterOnlyAppFlow(void)
     command.inverter_vrms_ref = 0.0f;
     command.dc_voltage_ref = 30.0f;
 
-    for (i = 1U; i <= 4U; i++)
-    {
+    for (i = 1U; i <= 4U; i++) {
         raw.sequence = i;
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
     }
@@ -1168,25 +996,18 @@ static bool Test_InverterOnlyAppFlow(void)
     TEST_CHECK(out.state == RUN);
     TEST_CHECK(out.pwm_allowed);
     TEST_CHECK(out.inverter.enabled);
-    TEST_CHECK(!AppControl_SetInverterRunMode(
-        &app, INVERTER_OPEN_LOOP));
+    TEST_CHECK(!AppControl_SetInverterRunMode(&app, INVERTER_OPEN_LOOP));
     TEST_CHECK(!out.rectifier.enabled);
     TEST_CHECK(TEST_NEAR(out.rectifier.leg_a, 0.5f, 1.0e-6f));
     TEST_CHECK(TEST_NEAR(out.measurement.vdc, 0.0f, 1.0e-6f));
-    TEST_CHECK(TEST_NEAR(
-        app.inverter.reference_target_rms,
-        30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO
-            * APP_INV_SQRT3_F,
-        1.0e-5f));
+    TEST_CHECK(TEST_NEAR(app.inverter.reference_target_rms,
+                         30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F, 1.0e-5f));
 
     command.dc_voltage_ref = 65.0f;
     raw.sequence++;
     TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-    TEST_CHECK(TEST_NEAR(
-        app.inverter.reference_target_rms,
-        65.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO
-            * APP_INV_SQRT3_F,
-        1.0e-5f));
+    TEST_CHECK(TEST_NEAR(app.inverter.reference_target_rms,
+                         65.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F, 1.0e-5f));
 
     command.dc_voltage_ref = 30.0f;
     raw.vdc = 0U;
@@ -1197,11 +1018,8 @@ static bool Test_InverterOnlyAppFlow(void)
     TEST_CHECK((out.faults & PROTECTION_FAULT_DC_OVERVOLTAGE) == 0U);
     TEST_CHECK((out.faults & PROTECTION_FAULT_DC_UNDERVOLTAGE) == 0U);
     TEST_CHECK((out.faults & PROTECTION_FAULT_DC_MISMATCH) == 0U);
-    TEST_CHECK(TEST_NEAR(
-        app.inverter.reference_target_rms,
-        30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO
-            * APP_INV_SQRT3_F,
-        1.0e-5f));
+    TEST_CHECK(TEST_NEAR(app.inverter.reference_target_rms,
+                         30.0f * APP_INVERTER_OUTPUT_LINE_RMS_RATIO * APP_INV_SQRT3_F, 1.0e-5f));
 
     command.enable = false;
     raw.sequence++;
@@ -1210,14 +1028,12 @@ static bool Test_InverterOnlyAppFlow(void)
     TEST_CHECK(!out.pwm_allowed);
     TEST_CHECK(!out.inverter.enabled);
     TEST_CHECK(!out.rectifier.enabled);
-    TEST_CHECK(AppControl_SetInverterRunMode(
-        &app, INVERTER_OPEN_LOOP));
+    TEST_CHECK(AppControl_SetInverterRunMode(&app, INVERTER_OPEN_LOOP));
 
     return true;
 }
 
-static bool Test_RectifierOnlyAppFlow(void)
-{
+static bool Test_RectifierOnlyAppFlow(void) {
     control_config_t cfg = Test_ValidFullBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1238,8 +1054,7 @@ static bool Test_RectifierOnlyAppFlow(void)
 
     command.enable = true;
     command.dc_voltage_ref = 60.0f;
-    for (i = 1U; i <= 520U; i++)
-    {
+    for (i = 1U; i <= 520U; i++) {
         Test_SetFullRawFrame(&cfg, &raw, i, 36.0f, 19.3f);
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
         TEST_CHECK(!out.inverter.enabled);
@@ -1271,14 +1086,10 @@ static bool Test_RectifierOnlyAppFlow(void)
 
     command.reset_fault = false;
     command.enable = true;
-    for (uint32_t restart = 0U; restart < 250U; restart++)
-    {
+    for (uint32_t restart = 0U; restart < 250U; restart++) {
         Test_SetFullRawFrame(&cfg, &raw, ++i, 36.0f, 19.3f);
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-        if (out.rectifier.enabled)
-        {
-            break;
-        }
+        if (out.rectifier.enabled) break;
     }
     TEST_CHECK(out.state == RUN);
     TEST_CHECK(out.pwm_allowed);
@@ -1287,8 +1098,7 @@ static bool Test_RectifierOnlyAppFlow(void)
     return true;
 }
 
-static bool Test_RectifierZeroCrossStart(void)
-{
+static bool Test_RectifierZeroCrossStart(void) {
     control_config_t cfg = Test_ValidFullBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1308,16 +1118,14 @@ static bool Test_RectifierZeroCrossStart(void)
     TEST_CHECK(AppControl_SetMode(&app, MODE2_RECTIFIER));
 
     command.dc_voltage_ref = 60.0f;
-    for (i = 1U; i <= RECTIFIER_VIN_RMS_WINDOW_SAMPLES; i++)
-    {
+    for (i = 1U; i <= RECTIFIER_VIN_RMS_WINDOW_SAMPLES; i++) {
         Test_SetFullRawFrame(&cfg, &raw, i, 36.0f, 19.3f);
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
     }
     TEST_CHECK(app.rectifier.vin_rms_valid);
 
     command.enable = true;
-    for (i++; i <= RECTIFIER_VIN_RMS_WINDOW_SAMPLES + 6U; i++)
-    {
+    for (i++; i <= RECTIFIER_VIN_RMS_WINDOW_SAMPLES + 6U; i++) {
         Test_SetFullRawFrame(&cfg, &raw, i, 36.0f, 19.3f);
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
         TEST_CHECK(!out.rectifier.enabled);
@@ -1346,12 +1154,10 @@ static bool Test_RectifierZeroCrossStart(void)
         bool saw_gates_on = false;
         uint32_t k;
 
-        for (k = 0U; k < 600U; k++)
-        {
+        for (k = 0U; k < 600U; k++) {
             Test_SetFullRawFrame(&cfg, &raw, ++i, 36.0f, 19.3f);
             TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-            if (out.rectifier.enabled)
-            {
+            if (out.rectifier.enabled) {
                 saw_gates_on = true;
                 break;
             }
@@ -1369,8 +1175,7 @@ static bool Test_RectifierZeroCrossStart(void)
     return true;
 }
 
-static bool Test_FullStageAppFlow(void)
-{
+static bool Test_FullStageAppFlow(void) {
     control_config_t cfg = Test_ValidFullBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1396,17 +1201,11 @@ static bool Test_FullStageAppFlow(void)
 
     command.enable = true;
     command.dc_voltage_ref = 60.0f;
-    for (i = 1U; i <= 6000U; i++)
-    {
+    for (i = 1U; i <= 6000U; i++) {
         bool force_tolerance_drop =
-            !forced_counter_reset
-            && (app.mode0_dc_ready_count
-                == cfg.rectifier.dc_ready_confirm_samples - 1U);
+            !forced_counter_reset && (app.mode0_dc_ready_count == cfg.rectifier.dc_ready_confirm_samples - 1U);
 
-        if (force_tolerance_drop)
-        {
-            RectifierControl_SetDcReference(&app.rectifier, 50.0f);
-        }
+        if (force_tolerance_drop) RectifierControl_SetDcReference(&app.rectifier, 50.0f);
         /*
          * 母线馈 58 V（低于 60 V 目标但在 5 V 容差内）：
          * 新门控行为下 PI 必须实际请求电流才会使能整流门极，
@@ -1414,34 +1213,25 @@ static bool Test_FullStageAppFlow(void)
          */
         Test_SetFullRawFrame(&cfg, &raw, i, 36.0f, 58.0f);
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-        if (force_tolerance_drop)
-        {
+        if (force_tolerance_drop) {
             TEST_CHECK(app.mode0_dc_ready_count == 0U);
             TEST_CHECK(!out.inverter.enabled);
             RectifierControl_SetDcReference(&app.rectifier, 60.0f);
             forced_counter_reset = true;
         }
-        if (out.rectifier.enabled)
-        {
-            saw_rectifier = true;
-        }
-        if (out.inverter.enabled)
-        {
+        if (out.rectifier.enabled) saw_rectifier = true;
+        if (out.inverter.enabled) {
             TEST_CHECK(out.rectifier.enabled);
             saw_both_stages = true;
             break;
         }
-        if (out.rectifier.enabled)
-        {
-            rectifier_only_samples++;
-        }
+        if (out.rectifier.enabled) rectifier_only_samples++;
     }
 
     TEST_CHECK(saw_rectifier);
     TEST_CHECK(saw_both_stages);
     TEST_CHECK(forced_counter_reset);
-    TEST_CHECK(rectifier_only_samples >= cfg.rectifier.dc_ready_confirm_samples
-                                      - 1U);
+    TEST_CHECK(rectifier_only_samples >= cfg.rectifier.dc_ready_confirm_samples - 1U);
     TEST_CHECK(app.mode0_inverter_ready);
     TEST_CHECK(app.rectifier_dc_ready);
     TEST_CHECK(out.state == RUN);
@@ -1457,8 +1247,7 @@ static bool Test_FullStageAppFlow(void)
     return true;
 }
 
-static bool Test_OpenLoopProtection(void)
-{
+static bool Test_OpenLoopProtection(void) {
     control_config_t cfg = Test_ValidInverterBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1477,8 +1266,7 @@ static bool Test_OpenLoopProtection(void)
     TEST_CHECK(AppControl_Init(&app));
     app.cfg = &cfg;
     TEST_CHECK(AppControl_SetMode(&app, MODE1_INVERTER));
-    TEST_CHECK(AppControl_SetInverterRunMode(
-        &app, INVERTER_OPEN_LOOP));
+    TEST_CHECK(AppControl_SetInverterRunMode(&app, INVERTER_OPEN_LOOP));
 
     raw.ia = 2000U;
     raw.ib = 2000U;
@@ -1489,8 +1277,7 @@ static bool Test_OpenLoopProtection(void)
     command.enable = true;
     command.dc_voltage_ref = 30.0f;
 
-    for (i = 1U; i <= 4U; i++)
-    {
+    for (i = 1U; i <= 4U; i++) {
         raw.sequence = i;
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
     }
@@ -1507,17 +1294,14 @@ static bool Test_OpenLoopProtection(void)
     TEST_CHECK(!out.inverter.enabled);
     TEST_CHECK((out.faults & PROTECTION_FAULT_PHASE_OVERCURRENT) != 0U);
     TEST_CHECK(!app.fault_snapshot.valid);
-    TEST_CHECK(AppControl_SetInverterRunMode(
-        &app, INVERTER_CLOSED_LOOP));
+    TEST_CHECK(AppControl_SetInverterRunMode(&app, INVERTER_CLOSED_LOOP));
     TEST_CHECK(app.inverter_run_mode == INVERTER_CLOSED_LOOP);
     TEST_CHECK(app.state.state == FAULT_LATCH);
-    TEST_CHECK((app.protection.latched_faults
-                & PROTECTION_FAULT_PHASE_OVERCURRENT) != 0U);
+    TEST_CHECK((app.protection.latched_faults & PROTECTION_FAULT_PHASE_OVERCURRENT) != 0U);
     return true;
 }
 
-static bool Test_BoardConfigGates(void)
-{
+static bool Test_BoardConfigGates(void) {
     control_config_t cfg = Test_ValidFullBoardConfig();
 
     TEST_CHECK(BoardPower_ValidateConfig(&cfg));
@@ -1550,8 +1334,7 @@ static bool Test_BoardConfigGates(void)
     TEST_CHECK(!BoardPower_ValidateModeConfig(&cfg, MODE1_INVERTER));
     cfg.dc_voltage_ref = 65.0f;
     /* 输出参考与母线解耦：母线 65V 时输出仍可独立设 32V。 */
-    cfg.output_line_voltage_rms =
-        APP_INVERTER_OUTPUT_LINE_RMS_DEFAULT_V;
+    cfg.output_line_voltage_rms = APP_INVERTER_OUTPUT_LINE_RMS_DEFAULT_V;
     TEST_CHECK(BoardPower_ValidateConfig(&cfg));
     cfg.dc_voltage_ref = 66.0f;
     TEST_CHECK(!BoardPower_ValidateConfig(&cfg));
@@ -1559,8 +1342,7 @@ static bool Test_BoardConfigGates(void)
     /* 解耦后输出参考超出 28~34V 微调窗口判非法。 */
     cfg.output_line_voltage_rms = 40.0f;
     TEST_CHECK(!BoardPower_ValidateConfig(&cfg));
-    cfg.output_line_voltage_rms =
-        APP_INVERTER_OUTPUT_LINE_RMS_DEFAULT_V;
+    cfg.output_line_voltage_rms = APP_INVERTER_OUTPUT_LINE_RMS_DEFAULT_V;
 
     cfg.rectifier.sample_time_s = 0.0f;
     TEST_CHECK(!BoardPower_ValidateConfig(&cfg));
@@ -1610,8 +1392,7 @@ static bool Test_BoardConfigGates(void)
     return true;
 }
 
-static bool Test_ModeValidationCache(void)
-{
+static bool Test_ModeValidationCache(void) {
     control_config_t cfg = Test_ValidInverterBoardConfig();
     control_config_t invalid_cfg;
     AppControl app;
@@ -1661,8 +1442,7 @@ static bool Test_ModeValidationCache(void)
     return true;
 }
 
-static bool Test_PublicApiAndVdcSetting(void)
-{
+static bool Test_PublicApiAndVdcSetting(void) {
     const AppStatus *status;
     const AppPwmCommand *pwm;
     uint32_t pair[4];
@@ -1672,18 +1452,14 @@ static bool Test_PublicApiAndVdcSetting(void)
     status = App_GetStatus();
     TEST_CHECK(status != NULL);
     TEST_CHECK(BoardPower_ConfigValid());
-    TEST_CHECK(BoardPower_ValidateModeConfig(
-        &g_board_power_config, MODE1_INVERTER));
-    TEST_CHECK(BoardPower_ValidateModeConfig(
-        &g_board_power_config, MODE2_RECTIFIER));
+    TEST_CHECK(BoardPower_ValidateModeConfig(&g_board_power_config, MODE1_INVERTER));
+    TEST_CHECK(BoardPower_ValidateModeConfig(&g_board_power_config, MODE2_RECTIFIER));
     TEST_CHECK(status->state == OFF);
     TEST_CHECK(status->board_config_valid);
     TEST_CHECK(status->mode == MODE1_INVERTER);
     TEST_CHECK(status->inverter_run_mode == INVERTER_CLOSED_LOOP);
-    TEST_CHECK(TEST_NEAR(status->output_line_voltage_reference_v,
-                         32.0f, 1.0e-5f));
-    TEST_CHECK(TEST_NEAR(status->dc_voltage_reference_v,
-                         62.0f, 1.0e-5f));
+    TEST_CHECK(TEST_NEAR(status->output_line_voltage_reference_v, 32.0f, 1.0e-5f));
+    TEST_CHECK(TEST_NEAR(status->dc_voltage_reference_v, 62.0f, 1.0e-5f));
     TEST_CHECK(App_RequestMode(MODE0_FULL));
     TEST_CHECK(App_GetStatus()->mode == MODE0_FULL);
     TEST_CHECK(App_RequestMode(MODE2_RECTIFIER));
@@ -1693,8 +1469,7 @@ static bool Test_PublicApiAndVdcSetting(void)
     TEST_CHECK(App_GetStatus()->mode == MODE1_INVERTER);
     TEST_CHECK(!App_RequestMode((app_mode_t)3));
     TEST_CHECK(App_SetInverterRunMode(INVERTER_OPEN_LOOP));
-    TEST_CHECK(App_GetStatus()->inverter_run_mode
-               == INVERTER_OPEN_LOOP);
+    TEST_CHECK(App_GetStatus()->inverter_run_mode == INVERTER_OPEN_LOOP);
     TEST_CHECK(App_SetInverterRunMode(INVERTER_CLOSED_LOOP));
     TEST_CHECK(!App_SetInverterRunMode((inverter_run_mode_t)2));
     TEST_CHECK(App_SetOutputFrequency(30U));
@@ -1708,14 +1483,10 @@ static bool Test_PublicApiAndVdcSetting(void)
     TEST_CHECK(!App_SetDcVoltageReference(29.0f));
     TEST_CHECK(App_SetDcVoltageReference(65.0f));
     /* 母线参考修改不再联动输出参考。 */
-    TEST_CHECK(TEST_NEAR(
-        App_GetStatus()->output_line_voltage_reference_v,
-        32.0f, 1.0e-5f));
+    TEST_CHECK(TEST_NEAR(App_GetStatus()->output_line_voltage_reference_v, 32.0f, 1.0e-5f));
     TEST_CHECK(!App_SetDcVoltageReference(66.0f));
     TEST_CHECK(App_SetDcVoltageReference(30.0f));
-    TEST_CHECK(TEST_NEAR(
-        App_GetStatus()->output_line_voltage_reference_v,
-        32.0f, 1.0e-5f));
+    TEST_CHECK(TEST_NEAR(App_GetStatus()->output_line_voltage_reference_v, 32.0f, 1.0e-5f));
 
     pair[0] = ((uint32_t)2048U << 16) | 2048U;
     pair[1] = ((uint32_t)2085U << 16) | 2085U;
@@ -1729,12 +1500,10 @@ static bool Test_PublicApiAndVdcSetting(void)
     TEST_CHECK(!App_RequestMode(MODE2_RECTIFIER));
     TEST_CHECK(!App_SetOutputFrequency(60U));
     TEST_CHECK(App_GetStatus()->mode == MODE1_INVERTER);
-    TEST_CHECK(TEST_NEAR(App_GetStatus()->output_frequency_hz,
-                         30.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(App_GetStatus()->output_frequency_hz, 30.0f, 1.0e-6f));
     TEST_CHECK(!App_SetInverterRunMode(INVERTER_CLOSED_LOOP));
     TEST_CHECK(!App_SetDcVoltageReference(31.0f));
-    for (i = 3U; i <= 50U; i++)
-    {
+    for (i = 3U; i <= 50U; i++) {
         TEST_CHECK(App_ApplyAdcPairs(pair, i));
         App_FastStep20kHz();
     }
@@ -1752,16 +1521,13 @@ static bool Test_PublicApiAndVdcSetting(void)
     TEST_CHECK(TEST_NEAR(status->dc_voltage_reference_v, 30.0f, 1.0e-6f));
     /* 独立输出参考 32V 线受 30V 母线过调制限幅：
      * (duty_max-duty_min)*Vdc/sqrt(6)*0.95 相 RMS，再折算线电压。 */
-    TEST_CHECK(TEST_NEAR(
-        status->output_line_voltage_reference_v,
-        (0.98f - 0.02f) * 30.0f * 0.40824829046386301637f
-            * APP_INVERTER_VOLTAGE_MARGIN * APP_SQRT3_F,
-        1.0e-4f));
+    TEST_CHECK(TEST_NEAR(status->output_line_voltage_reference_v,
+                         (0.98f - 0.02f) * 30.0f * 0.40824829046386301637f * APP_INVERTER_VOLTAGE_MARGIN * APP_SQRT3_F,
+                         1.0e-4f));
     TEST_CHECK(!App_SetDcVoltageReference(60.0f));
 
     App_RequestStop();
-    for (i = 51U; i <= 75U; i++)
-    {
+    for (i = 51U; i <= 75U; i++) {
         TEST_CHECK(App_ApplyAdcPairs(pair, i));
         App_FastStep20kHz();
     }
@@ -1771,9 +1537,7 @@ static bool Test_PublicApiAndVdcSetting(void)
     /* 解耦后输出参考由控制步根据当前母线参考重算，补一拍刷新。 */
     TEST_CHECK(App_ApplyAdcPairs(pair, 76U));
     App_FastStep20kHz();
-    TEST_CHECK(TEST_NEAR(
-        App_GetStatus()->output_line_voltage_reference_v,
-        32.0f, 1.0e-5f));
+    TEST_CHECK(TEST_NEAR(App_GetStatus()->output_line_voltage_reference_v, 32.0f, 1.0e-5f));
 
     App_TripFromISR(PROTECTION_FAULT_EXTERNAL);
     TEST_CHECK(!App_GetPwmCommand()->inverter_enable_request);
@@ -1781,8 +1545,7 @@ static bool Test_PublicApiAndVdcSetting(void)
     return true;
 }
 
-static bool Test_OutputOvSnapshot(void)
-{
+static bool Test_OutputOvSnapshot(void) {
     const AppStatus *status;
     uint32_t pair[4];
 
@@ -1801,8 +1564,7 @@ static bool Test_OutputOvSnapshot(void)
 
     status = App_GetStatus();
     TEST_CHECK(status->state != FAULT_LATCH);
-    TEST_CHECK((status->faults
-                & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) == 0UL);
+    TEST_CHECK((status->faults & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) == 0UL);
     TEST_CHECK(!status->fault_snapshot.valid);
 
     TEST_CHECK(App_ApplyAdcPairs(pair, 7002U));
@@ -1810,17 +1572,12 @@ static bool Test_OutputOvSnapshot(void)
 
     status = App_GetStatus();
     TEST_CHECK(status->state == FAULT_LATCH);
-    TEST_CHECK((status->faults
-                & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) != 0UL);
+    TEST_CHECK((status->faults & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) != 0UL);
     TEST_CHECK(status->fault_snapshot.valid);
-    TEST_CHECK(status->fault_snapshot.inverter_run_mode
-               == INVERTER_CLOSED_LOOP);
-    TEST_CHECK((status->fault_snapshot.faults
-                & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) != 0UL);
+    TEST_CHECK(status->fault_snapshot.inverter_run_mode == INVERTER_CLOSED_LOOP);
+    TEST_CHECK((status->fault_snapshot.faults & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) != 0UL);
     TEST_CHECK(status->fault_snapshot.sample_sequence == 7002U);
-    TEST_CHECK(TEST_NEAR(
-        status->fault_snapshot.dc_voltage_reference_v,
-        62.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(status->fault_snapshot.dc_voltage_reference_v, 62.0f, 1.0e-6f));
     TEST_CHECK(status->fault_snapshot.pc2_raw == 3500U);
     TEST_CHECK(status->fault_snapshot.pc3_raw == 2110U);
     TEST_CHECK(status->fault_snapshot.trigger_raw.pc0_raw == 2085U);
@@ -1830,11 +1587,10 @@ static bool Test_OutputOvSnapshot(void)
     TEST_CHECK(status->fault_snapshot.fast_history_count == 0U);
     TEST_CHECK(!status->fault_snapshot.previous_control.valid);
     TEST_CHECK(status->fault_snapshot.va_v > 32.0f);
-    TEST_CHECK(TEST_NEAR(
-        status->fault_snapshot.vab_v,
-        ((float)3500U - g_board_power_config.measurement.vab.offset_count)
-            * g_board_power_config.measurement.vab.gain,
-        1.0e-4f));
+    TEST_CHECK(TEST_NEAR(status->fault_snapshot.vab_v,
+                         ((float)3500U - g_board_power_config.measurement.vab.offset_count) *
+                             g_board_power_config.measurement.vab.gain,
+                         1.0e-4f));
 
     /* A later fault frame must not overwrite the first captured frame. */
     pair[2] = ((uint32_t)2110U << 16) | 3900U;
@@ -1855,8 +1611,7 @@ static bool Test_OutputOvSnapshot(void)
     return true;
 }
 
-static bool Test_InputOvSnapshot(void)
-{
+static bool Test_InputOvSnapshot(void) {
     control_config_t cfg = Test_ValidFullBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1877,25 +1632,21 @@ static bool Test_InputOvSnapshot(void)
     raw.valid = true;
     raw.sequence = 9001U;
     TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-    TEST_CHECK((out.faults
-                & PROTECTION_FAULT_INPUT_OVERVOLTAGE) == 0UL);
+    TEST_CHECK((out.faults & PROTECTION_FAULT_INPUT_OVERVOLTAGE) == 0UL);
     TEST_CHECK(!app.fault_snapshot.valid);
 
     raw.sequence = 9002U;
     TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-    TEST_CHECK((out.faults
-                & PROTECTION_FAULT_INPUT_OVERVOLTAGE) != 0UL);
+    TEST_CHECK((out.faults & PROTECTION_FAULT_INPUT_OVERVOLTAGE) != 0UL);
     TEST_CHECK(app.fault_snapshot.valid);
-    TEST_CHECK((app.fault_snapshot.faults
-                & PROTECTION_FAULT_INPUT_OVERVOLTAGE) != 0UL);
+    TEST_CHECK((app.fault_snapshot.faults & PROTECTION_FAULT_INPUT_OVERVOLTAGE) != 0UL);
     TEST_CHECK(app.fault_snapshot.sample_sequence == 9002U);
     TEST_CHECK(app.fault_snapshot.vin_raw == high_raw);
     TEST_CHECK(app.fault_snapshot.previous_vin_valid);
     TEST_CHECK(app.fault_snapshot.previous_vin_sequence == 9001U);
     TEST_CHECK(app.fault_snapshot.previous_vin_raw == high_raw);
     TEST_CHECK(TEST_NEAR(app.fault_snapshot.vin_v, 65.5f, 0.11f));
-    TEST_CHECK(TEST_NEAR(
-        app.fault_snapshot.previous_vin_v, 65.5f, 0.11f));
+    TEST_CHECK(TEST_NEAR(app.fault_snapshot.previous_vin_v, 65.5f, 0.11f));
     TEST_CHECK(TEST_NEAR(app.fault_snapshot.vdc_v, 19.3f, 0.11f));
 
     raw.vin = Test_RawFromPhysical(&cfg.measurement.vin, 0.0f);
@@ -1907,8 +1658,7 @@ static bool Test_InputOvSnapshot(void)
     return true;
 }
 
-static bool Test_InputOcSnapshot(void)
-{
+static bool Test_InputOcSnapshot(void) {
     control_config_t cfg = Test_ValidFullBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1930,25 +1680,21 @@ static bool Test_InputOcSnapshot(void)
     raw.valid = true;
     raw.sequence = 9101U;
     TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-    TEST_CHECK((out.faults
-                & PROTECTION_FAULT_INPUT_OVERCURRENT) == 0UL);
+    TEST_CHECK((out.faults & PROTECTION_FAULT_INPUT_OVERCURRENT) == 0UL);
     TEST_CHECK(!app.fault_snapshot.valid);
 
     raw.sequence = 9102U;
     TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-    TEST_CHECK((out.faults
-                & PROTECTION_FAULT_INPUT_OVERCURRENT) != 0UL);
+    TEST_CHECK((out.faults & PROTECTION_FAULT_INPUT_OVERCURRENT) != 0UL);
     TEST_CHECK(app.fault_snapshot.valid);
-    TEST_CHECK((app.fault_snapshot.faults
-                & PROTECTION_FAULT_INPUT_OVERCURRENT) != 0UL);
+    TEST_CHECK((app.fault_snapshot.faults & PROTECTION_FAULT_INPUT_OVERCURRENT) != 0UL);
     TEST_CHECK(app.fault_snapshot.sample_sequence == 9102U);
     TEST_CHECK(app.fault_snapshot.iin_raw == high_raw);
     TEST_CHECK(app.fault_snapshot.previous_iin_valid);
     TEST_CHECK(app.fault_snapshot.previous_iin_sequence == 9101U);
     TEST_CHECK(app.fault_snapshot.previous_iin_raw == high_raw);
     TEST_CHECK(TEST_NEAR(app.fault_snapshot.iin_a, 5.65f, 0.01f));
-    TEST_CHECK(TEST_NEAR(
-        app.fault_snapshot.previous_iin_a, 5.65f, 0.01f));
+    TEST_CHECK(TEST_NEAR(app.fault_snapshot.previous_iin_a, 5.65f, 0.01f));
     TEST_CHECK(TEST_NEAR(app.fault_snapshot.vdc_v, 19.3f, 0.11f));
 
     raw.iin = Test_RawFromPhysical(&cfg.measurement.iin, 0.0f);
@@ -1960,8 +1706,7 @@ static bool Test_InputOcSnapshot(void)
     return true;
 }
 
-static bool Test_OutputOvDiagnosticHistory(void)
-{
+static bool Test_OutputOvDiagnosticHistory(void) {
     control_config_t cfg = Test_ValidInverterBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -1989,8 +1734,7 @@ static bool Test_OutputOvDiagnosticHistory(void)
     command.enable = true;
     command.dc_voltage_ref = 45.0f;
 
-    for (i = 1U; i <= 4U; i++)
-    {
+    for (i = 1U; i <= 4U; i++) {
         raw.sequence = i;
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
     }
@@ -2000,16 +1744,14 @@ static bool Test_OutputOvDiagnosticHistory(void)
      * Fill and wrap the 16-frame fast history. One safe 20 V line
      * excursion also leaves a recognizable completed-cycle peak.
      */
-    for (i = 0U; i < 360U; i++)
-    {
+    for (i = 0U; i < 360U; i++) {
         raw.ia = (uint16_t)(2000U + (i % 5U));
         raw.ib = (uint16_t)(2000U + (i % 7U));
         raw.vab = (uint16_t)(2000U + (i % 20U));
         raw.vbc = (i == 100U) ? 2200U : 2000U;
         raw.sequence = 5U + i;
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
-        TEST_CHECK((out.faults
-                    & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) == 0UL);
+        TEST_CHECK((out.faults & PROTECTION_FAULT_OUTPUT_OVERVOLTAGE) == 0UL);
     }
 
     raw.ia = 2011U;
@@ -2026,12 +1768,9 @@ static bool Test_OutputOvDiagnosticHistory(void)
     TEST_CHECK(out.state == FAULT_LATCH);
     TEST_CHECK(app.fault_snapshot.valid);
     TEST_CHECK(app.fault_snapshot.sample_sequence == 366U);
-    TEST_CHECK(app.fault_snapshot.fast_history_count
-               == APP_FAULT_FAST_HISTORY_DEPTH);
-    TEST_CHECK(app.fault_snapshot.fast_history[0].sample_sequence
-               == 350U);
-    TEST_CHECK(app.fault_snapshot.fast_history[15].sample_sequence
-               == 365U);
+    TEST_CHECK(app.fault_snapshot.fast_history_count == APP_FAULT_FAST_HISTORY_DEPTH);
+    TEST_CHECK(app.fault_snapshot.fast_history[0].sample_sequence == 350U);
+    TEST_CHECK(app.fault_snapshot.fast_history[15].sample_sequence == 365U);
     TEST_CHECK(app.fault_snapshot.fast_history[0].pc2_raw == 2005U);
     TEST_CHECK(app.fault_snapshot.fast_history[15].pc2_raw == 2500U);
     TEST_CHECK(app.fault_snapshot.fast_history[15].pc0_raw == 2022U);
@@ -2041,14 +1780,12 @@ static bool Test_OutputOvDiagnosticHistory(void)
     TEST_CHECK(app.fault_snapshot.trigger_raw.pc2_raw == 2500U);
     TEST_CHECK(app.fault_snapshot.trigger_raw.pc3_raw == 2000U);
     TEST_CHECK(app.fault_snapshot.previous_control.valid);
-    TEST_CHECK(app.fault_snapshot.previous_control.sample_sequence
-               == 365U);
+    TEST_CHECK(app.fault_snapshot.previous_control.sample_sequence == 365U);
     TEST_CHECK(app.fault_snapshot.previous_control.applied_scale > 0.0f);
     TEST_CHECK(app.fault_snapshot.cycle_peak_count >= 1U);
     TEST_CHECK(app.fault_snapshot.cycle_peak_v[0] > 10.0f);
     TEST_CHECK(app.fault_snapshot.partial_cycle_samples > 0U);
-    TEST_CHECK(app.fault_snapshot.partial_cycle_samples
-               < app.fault_recorder.cycle_target_samples);
+    TEST_CHECK(app.fault_snapshot.partial_cycle_samples < app.fault_recorder.cycle_target_samples);
 
     /* A safe reset clears both the published event and all old history. */
     command.enable = false;
@@ -2076,8 +1813,7 @@ static bool Test_OutputOvDiagnosticHistory(void)
     return true;
 }
 
-static bool Test_OutputOvNoStaleHistoryAfterStop(void)
-{
+static bool Test_OutputOvNoStaleHistoryAfterStop(void) {
     control_config_t cfg = Test_ValidInverterBoardConfig();
     AppControl app;
     AppCommand command = {0};
@@ -2104,15 +1840,13 @@ static bool Test_OutputOvNoStaleHistoryAfterStop(void)
     command.enable = true;
     command.dc_voltage_ref = 45.0f;
 
-    for (i = 1U; i <= 24U; i++)
-    {
+    for (i = 1U; i <= 24U; i++) {
         raw.sequence = i;
         TEST_CHECK(AppControl_Step(&app, &raw, &command, &out));
     }
     TEST_CHECK(out.state == RUN);
     TEST_CHECK(app.fault_recorder.active);
-    TEST_CHECK(app.fault_recorder.fast_history_count
-               == APP_FAULT_FAST_HISTORY_DEPTH);
+    TEST_CHECK(app.fault_recorder.fast_history_count == APP_FAULT_FAST_HISTORY_DEPTH);
 
     command.enable = false;
     raw.sequence = 25U;
@@ -2133,8 +1867,7 @@ static bool Test_OutputOvNoStaleHistoryAfterStop(void)
     return true;
 }
 
-static bool Test_IsrFaultResetSemantics(void)
-{
+static bool Test_IsrFaultResetSemantics(void) {
     const AppStatus *status;
     uint32_t pair[4];
 
@@ -2144,8 +1877,7 @@ static bool Test_IsrFaultResetSemantics(void)
     pair[3] = ((uint32_t)2048U << 16) | 2048U;
 
     App_Init();
-    App_TripFromISR(PROTECTION_FAULT_EXTERNAL
-                  | PROTECTION_FAULT_LOOP_OVERRUN);
+    App_TripFromISR(PROTECTION_FAULT_EXTERNAL | PROTECTION_FAULT_LOOP_OVERRUN);
     TEST_CHECK(App_ApplyAdcPairs(pair, 1U));
     App_FastStep20kHz();
     status = App_GetStatus();
@@ -2154,16 +1886,11 @@ static bool Test_IsrFaultResetSemantics(void)
     TEST_CHECK((status->faults & PROTECTION_FAULT_EXTERNAL) != 0U);
     TEST_CHECK((status->faults & PROTECTION_FAULT_LOOP_OVERRUN) != 0U);
     TEST_CHECK(App_SetInverterRunMode(INVERTER_OPEN_LOOP));
-    TEST_CHECK(App_GetStatus()->inverter_run_mode
-               == INVERTER_OPEN_LOOP);
+    TEST_CHECK(App_GetStatus()->inverter_run_mode == INVERTER_OPEN_LOOP);
     TEST_CHECK(App_SetDcVoltageReference(59.0f));
-    TEST_CHECK(TEST_NEAR(App_GetStatus()->dc_voltage_reference_v,
-                         59.0f, 1.0e-6f));
+    TEST_CHECK(TEST_NEAR(App_GetStatus()->dc_voltage_reference_v, 59.0f, 1.0e-6f));
     /* 解耦后母线参考改为 59V 不影响输出参考（仍为独立设定的 32V）。 */
-    TEST_CHECK(TEST_NEAR(
-        App_GetStatus()->output_line_voltage_reference_v,
-        32.0f,
-        1.0e-5f));
+    TEST_CHECK(TEST_NEAR(App_GetStatus()->output_line_voltage_reference_v, 32.0f, 1.0e-5f));
     TEST_CHECK(App_RequestMode(MODE2_RECTIFIER));
     status = App_GetStatus();
     TEST_CHECK(status->mode == MODE2_RECTIFIER);
@@ -2177,8 +1904,7 @@ static bool Test_IsrFaultResetSemantics(void)
     App_FastStep20kHz();
     TEST_CHECK(App_GetStatus()->faults == PROTECTION_FAULT_NONE);
     TEST_CHECK(App_GetStatus()->mode == MODE2_RECTIFIER);
-    TEST_CHECK(App_GetStatus()->inverter_run_mode
-               == INVERTER_OPEN_LOOP);
+    TEST_CHECK(App_GetStatus()->inverter_run_mode == INVERTER_OPEN_LOOP);
 
     App_TripFromISR(PROTECTION_FAULT_LOOP_OVERRUN);
     TEST_CHECK(App_ApplyAdcPairs(pair, 3U));
@@ -2195,71 +1921,57 @@ static bool Test_IsrFaultResetSemantics(void)
     /* 复位后的新故障必须能重新锁存，不能被旧的清零操作覆盖。 */
     App_TripFromISR(PROTECTION_FAULT_MEASUREMENT);
     App_FastStep20kHz();
-    TEST_CHECK((App_GetStatus()->faults
-                & PROTECTION_FAULT_MEASUREMENT) != 0U);
+    TEST_CHECK((App_GetStatus()->faults & PROTECTION_FAULT_MEASUREMENT) != 0U);
     return true;
 }
 
 typedef bool (*TestFunction)(void);
 
-typedef struct
-{
+typedef struct {
     const char *name;
     TestFunction run;
 } TestCase;
 
-int main(void)
-{
-    static const TestCase tests[] =
-    {
-        {"measurement", Test_Measurement},
-        {"dual ADC rank mapping", Test_AdcRankMapping},
-        {"mode-specific ADC diagnostics",
-         Test_ModeSpecificAdcDiagnostics},
-        {"inverter-only ADC path", Test_InverterMeasurementPath},
-        {"rectifier-only ADC path", Test_RectifierMeasurementPath},
-        {"phase recurrence", Test_PhaseRecurrence},
-        {"PI anti-windup", Test_PiAntiWindup},
-        {"Tustin QPR", Test_Qpr},
-        {"Tustin notch", Test_Notch},
-        {"SVPWM and rectifier PWM", Test_Modulation},
-        {"inverter cascaded loops", Test_InverterCascade},
-        {"inverter open loop", Test_InverterOpenLoop},
-        {"rectifier synchronized loop", Test_RectifierControl},
-        {"production rectifier parameters",
-         Test_ProductionRectifierParameters},
-        {"protection latch", Test_Protection},
-        {"power state machine", Test_PowerState},
-        {"board configuration gates", Test_BoardConfigGates},
-        {"mode validation cache", Test_ModeValidationCache},
-        {"inverter-only app flow", Test_InverterOnlyAppFlow},
-        {"rectifier-only app flow", Test_RectifierOnlyAppFlow},
-        {"rectifier zero-cross start", Test_RectifierZeroCrossStart},
-        {"full-stage app flow", Test_FullStageAppFlow},
-        {"open-loop protection", Test_OpenLoopProtection},
-        {"public API and Vdc setting", Test_PublicApiAndVdcSetting},
-        {"input OC fault snapshot", Test_InputOcSnapshot},
-        {"input OV fault snapshot", Test_InputOvSnapshot},
-        {"output OV fault snapshot", Test_OutputOvSnapshot},
-        {"output OV diagnostic history", Test_OutputOvDiagnosticHistory},
-        {"output OV stale history guard",
-         Test_OutputOvNoStaleHistoryAfterStop},
-        {"ISR fault reset semantics", Test_IsrFaultResetSemantics}
-    };
+int main(void) {
+    static const TestCase tests[] = {{"measurement", Test_Measurement},
+                                     {"dual ADC rank mapping", Test_AdcRankMapping},
+                                     {"mode-specific ADC diagnostics", Test_ModeSpecificAdcDiagnostics},
+                                     {"inverter-only ADC path", Test_InverterMeasurementPath},
+                                     {"rectifier-only ADC path", Test_RectifierMeasurementPath},
+                                     {"phase recurrence", Test_PhaseRecurrence},
+                                     {"PI anti-windup", Test_PiAntiWindup},
+                                     {"Tustin QPR", Test_Qpr},
+                                     {"Tustin notch", Test_Notch},
+                                     {"SVPWM and rectifier PWM", Test_Modulation},
+                                     {"inverter cascaded loops", Test_InverterCascade},
+                                     {"inverter open loop", Test_InverterOpenLoop},
+                                     {"rectifier synchronized loop", Test_RectifierControl},
+                                     {"production rectifier parameters", Test_ProductionRectifierParameters},
+                                     {"protection latch", Test_Protection},
+                                     {"power state machine", Test_PowerState},
+                                     {"board configuration gates", Test_BoardConfigGates},
+                                     {"mode validation cache", Test_ModeValidationCache},
+                                     {"inverter-only app flow", Test_InverterOnlyAppFlow},
+                                     {"rectifier-only app flow", Test_RectifierOnlyAppFlow},
+                                     {"rectifier zero-cross start", Test_RectifierZeroCrossStart},
+                                     {"full-stage app flow", Test_FullStageAppFlow},
+                                     {"open-loop protection", Test_OpenLoopProtection},
+                                     {"public API and Vdc setting", Test_PublicApiAndVdcSetting},
+                                     {"input OC fault snapshot", Test_InputOcSnapshot},
+                                     {"input OV fault snapshot", Test_InputOvSnapshot},
+                                     {"output OV fault snapshot", Test_OutputOvSnapshot},
+                                     {"output OV diagnostic history", Test_OutputOvDiagnosticHistory},
+                                     {"output OV stale history guard", Test_OutputOvNoStaleHistoryAfterStop},
+                                     {"ISR fault reset semantics", Test_IsrFaultResetSemantics}};
     size_t i;
 
-    for (i = 0U; i < sizeof(tests) / sizeof(tests[0]); i++)
-    {
+    for (i = 0U; i < sizeof(tests) / sizeof(tests[0]); i++) {
         bool passed = tests[i].run();
         printf("[%s] %s\n", passed ? "PASS" : "FAIL", tests[i].name);
-        if (!passed)
-        {
-            g_failed++;
-        }
+        if (!passed) g_failed++;
     }
 
-    if (g_failed != 0)
-    {
+    if (g_failed != 0) {
         printf("%d test group(s) failed.\n", g_failed);
         return 1;
     }

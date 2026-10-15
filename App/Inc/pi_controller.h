@@ -12,26 +12,20 @@
 #include <stdbool.h>
 
 /* PI 实例状态。由 PiController_Init 初始化。 */
-typedef struct
-{
-    float kp;             // 比例增益
-    float ki;             // 积分增益
-    float kaw;            // 抗饱和增益；0 表示改用条件积分
-    float sample_time_s;  // 控制周期 [s]
-    float out_min;        // 输出下限
-    float out_max;        // 输出上限
-    float integrator;     // 积分器状态
-    float error_prev;     // 上一拍误差，用于梯形积分
+typedef struct {
+    float kp;            // 比例增益
+    float ki;            // 积分增益
+    float kaw;           // 抗饱和增益；0 表示改用条件积分
+    float sample_time_s; // 控制周期 [s]
+    float out_min;       // 输出下限
+    float out_max;       // 输出上限
+    float integrator;    // 积分器状态
+    float error_prev;    // 上一拍误差，用于梯形积分
 } PiController;
 
 // 初始化。ki 必须非负；kaw=0 时走条件积分
 // 返回参数有限且范围合法
-bool PiController_Init(PiController *pi,
-                       float kp,
-                       float ki,
-                       float kaw,
-                       float sample_time_s,
-                       float out_min,
+bool PiController_Init(PiController *pi, float kp, float ki, float kaw, float sample_time_s, float out_min,
                        float out_max);
 
 // 复位历史误差，并把积分状态无扰地跟踪到 output（内部按上下限裁剪）

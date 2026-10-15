@@ -19,30 +19,21 @@
 #include <stddef.h>
 
 /* 三数取最大 */
-static float Svpwm_Max3(float a, float b, float c)
-{
+static float Svpwm_Max3(float a, float b, float c) {
     float max = (a > b) ? a : b;
     return (max > c) ? max : c;
 }
 
 /* 三数取最小 */
-static float Svpwm_Min3(float a, float b, float c)
-{
+static float Svpwm_Min3(float a, float b, float c) {
     float min = (a < b) ? a : b;
     return (min < c) ? min : c;
 }
 
 /* 把 value 限制到 [low, high] */
-static float Svpwm_Clamp(float value, float low, float high)
-{
-    if (value > high)
-    {
-        return high;
-    }
-    if (value < low)
-    {
-        return low;
-    }
+static float Svpwm_Clamp(float value, float low, float high) {
+    if (value > high) return high;
+    if (value < low) return low;
     return value;
 }
 
@@ -53,30 +44,19 @@ static float Svpwm_Clamp(float value, float low, float high)
  * 算 atan2。**这个结果只用于诊断显示**（OLED/调试器），不参与占空比计算——
  * 所以即使判错也不会影响输出，别被"扇区看起来不对"误导。
  */
-static uint8_t Svpwm_Sector(float alpha, float beta)
-{
+static uint8_t Svpwm_Sector(float alpha, float beta) {
     float root3_alpha;
 
-    if ((fabsf(alpha) + fabsf(beta)) < 1.0e-12f)
-    {
-        return 0U;
-    }
+    if ((fabsf(alpha) + fabsf(beta)) < 1.0e-12f) return 0U;
 
     /* 用 αβ 平面三条 60° 边界判定扇区，零矢量单独记为扇区 0。 */
     root3_alpha = APP_SQRT3_F * alpha;
-    if (beta >= 0.0f)
-    {
-        if (alpha >= 0.0f)
-        {
-            return (beta <= root3_alpha) ? 1U : 2U;
-        }
+    if (beta >= 0.0f) {
+        if (alpha >= 0.0f) return (beta <= root3_alpha) ? 1U : 2U;
         return (beta >= -root3_alpha) ? 2U : 3U;
     }
 
-    if (alpha < 0.0f)
-    {
-        return (-beta <= -root3_alpha) ? 4U : 5U;
-    }
+    if (alpha < 0.0f) return (-beta <= -root3_alpha) ? 4U : 5U;
     return (-beta >= root3_alpha) ? 5U : 6U;
 }
 
@@ -85,10 +65,8 @@ static uint8_t Svpwm_Sector(float alpha, float beta)
  * 注意这只是"生成安全命令"，不代表硬件 PWM 已经关断——真正的关断
  * 由 board_runtime.c 清 CCER/MOE 完成。NULL 安全。
  */
-void Svpwm_SetNeutral(SvpwmOutput *out)
-{
-    if (out != NULL)
-    {
+void Svpwm_SetNeutral(SvpwmOutput *out) {
+    if (out != NULL) {
         *out = (SvpwmOutput){0};
         out->duty_a = 0.5f;
         out->duty_b = 0.5f;
@@ -107,13 +85,8 @@ void Svpwm_SetNeutral(SvpwmOutput *out)
  *
  * 返回参数有效且生成成功；失败时输出保持中性值。
  */
-bool Svpwm_Generate(float voltage_alpha,
-                    float voltage_beta,
-                    float dc_voltage,
-                    float duty_min,
-                    float duty_max,
-                    SvpwmOutput *out)
-{
+bool Svpwm_Generate(float voltage_alpha, float voltage_beta, float dc_voltage, float duty_min, float duty_max,
+                    SvpwmOutput *out) {
     float va;
     float vb;
     float vc;
@@ -125,19 +98,12 @@ bool Svpwm_Generate(float voltage_alpha,
     float common;
     float center;
 
-    if (out == NULL)
-    {
-        return false;
-    }
+    if (out == NULL) return false;
     Svpwm_SetNeutral(out);
 
-    if (!isfinite(voltage_alpha) || !isfinite(voltage_beta)
-        || !isfinite(dc_voltage)
-        || !isfinite(duty_min) || !isfinite(duty_max)
-        || (dc_voltage <= 0.0f)
-        || (duty_min < 0.0f) || (duty_max > 1.0f)
-        || (duty_min >= duty_max))
-    {
+    if (!isfinite(voltage_alpha) || !isfinite(voltage_beta) || !isfinite(dc_voltage) || !isfinite(duty_min) ||
+        !isfinite(duty_max) || (dc_voltage <= 0.0f) || (duty_min < 0.0f) || (duty_max > 1.0f) ||
+        (duty_min >= duty_max)) {
         return false;
     }
 
@@ -150,8 +116,7 @@ bool Svpwm_Generate(float voltage_alpha,
     allowed_span = (duty_max - duty_min) * dc_voltage;
 
     /* 过调制前先等比例缩矢量，保持线电压方向和三相对称性。 */
-    if (span > allowed_span)
-    {
+    if (span > allowed_span) {
         scale = allowed_span / span;
         va *= scale;
         vb *= scale;
@@ -163,12 +128,9 @@ bool Svpwm_Generate(float voltage_alpha,
 
     common = -0.5f * (vmax + vmin);
     center = 0.5f * (duty_min + duty_max);
-    out->duty_a = Svpwm_Clamp(center + (va + common) / dc_voltage,
-                              duty_min, duty_max);
-    out->duty_b = Svpwm_Clamp(center + (vb + common) / dc_voltage,
-                              duty_min, duty_max);
-    out->duty_c = Svpwm_Clamp(center + (vc + common) / dc_voltage,
-                              duty_min, duty_max);
+    out->duty_a = Svpwm_Clamp(center + (va + common) / dc_voltage, duty_min, duty_max);
+    out->duty_b = Svpwm_Clamp(center + (vb + common) / dc_voltage, duty_min, duty_max);
+    out->duty_c = Svpwm_Clamp(center + (vc + common) / dc_voltage, duty_min, duty_max);
     out->applied_scale = scale;
     out->sector = Svpwm_Sector(voltage_alpha, voltage_beta);
     out->valid = true;

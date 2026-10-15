@@ -20,51 +20,49 @@
 #include "app_config.h"
 
 /* 故障记录器：跳闸前滚动保存原始码、控制量与工频周期峰值，供事后定位。 */
-typedef struct
-{
-    AppFaultRawSample fast_history[APP_FAULT_FAST_HISTORY_DEPTH];  // 触发前逐拍原始码
-    InverterControlOutput previous_control;                        // 触发前最后一拍控制量
-    float cycle_peak_v[APP_FAULT_CYCLE_HISTORY_DEPTH];             // 历次工频周期峰值
-    uint32_t previous_control_sequence;                            // 上一拍控制量的帧号
-    float partial_cycle_peak_v;                                    // 未完成周期的峰值
-    uint16_t partial_cycle_samples;                                // 未完成周期已累计拍数
-    uint16_t cycle_target_samples;                                 // 一个工频周期多少拍（按频率算）
-    uint8_t fast_write_index;                                      // fast_history 写指针
-    uint8_t fast_history_count;                                    // fast_history 有效条数
-    uint8_t cycle_write_index;                                     // cycle_peak_v 写指针
-    uint8_t cycle_peak_count;                                      // cycle_peak_v 有效条数
-    bool active;                                                   // 是否正在记录
+typedef struct {
+    AppFaultRawSample fast_history[APP_FAULT_FAST_HISTORY_DEPTH]; // 触发前逐拍原始码
+    InverterControlOutput previous_control;                       // 触发前最后一拍控制量
+    float cycle_peak_v[APP_FAULT_CYCLE_HISTORY_DEPTH];            // 历次工频周期峰值
+    uint32_t previous_control_sequence;                           // 上一拍控制量的帧号
+    float partial_cycle_peak_v;                                   // 未完成周期的峰值
+    uint16_t partial_cycle_samples;                               // 未完成周期已累计拍数
+    uint16_t cycle_target_samples;                                // 一个工频周期多少拍（按频率算）
+    uint8_t fast_write_index;                                     // fast_history 写指针
+    uint8_t fast_history_count;                                   // fast_history 有效条数
+    uint8_t cycle_write_index;                                    // cycle_peak_v 写指针
+    uint8_t cycle_peak_count;                                     // cycle_peak_v 有效条数
+    bool active;                                                  // 是否正在记录
 } AppFaultRecorder;
 
 /* 控制实例。持有逆变、整流、保护、状态机四块状态与各自的配置绑定。 */
-typedef struct
-{
-    InverterControl inverter;            // 逆变控制
-    RectifierControl rectifier;          // 整流控制
-    Protection protection;               // 保护
-    PowerStateMachine state;             // 电源状态机
-    const BoardPowerConfig *cfg;         // 当前配置
-    const BoardPowerConfig *validated_cfg;   // 上一次校验通过的配置指针
-    app_mode_t mode;                     // 当前模式
-    app_mode_t validated_mode;           // 上一次校验通过的模式
-    inverter_run_mode_t inverter_run_mode;   // 闭环/开环
-    AppFaultSnapshot fault_snapshot;     // 故障快照
-    AppFaultRecorder fault_recorder;     // 故障记录器
-    uint32_t previous_iin_sequence;      // 上一次输入电流有效的帧号
-    uint32_t previous_vin_sequence;      // 上一次输入电压有效的帧号
-    uint16_t mode0_dc_ready_count;       // MODE0 母线就绪连续计数
-    uint16_t previous_iin_raw;           // 上一次输入电流原始码
-    uint16_t previous_vin_raw;           // 上一次输入电压原始码
-    uint8_t rectifier_start_count;       // 整流启动过零确认计数
-    float previous_iin_a;                // 上一次输入电流 [A]
-    float previous_vin_v;                // 上一次输入电压 [V]
-    bool mode0_inverter_ready;           // MODE0 母线是否已就绪
-    bool rectifier_dc_ready;             // 整流级母线是否就绪
-    bool rectifier_start_ready;          // 整流级是否满足启动条件
-    bool previous_iin_valid;             // 上一次输入电流是否有效
-    bool previous_vin_valid;             // 上一次输入电压是否有效
-    bool board_config_valid;             // 板级参数是否通过校验
-    bool initialized;                    // 是否已成功初始化
+typedef struct {
+    InverterControl inverter;              // 逆变控制
+    RectifierControl rectifier;            // 整流控制
+    Protection protection;                 // 保护
+    PowerStateMachine state;               // 电源状态机
+    const BoardPowerConfig *cfg;           // 当前配置
+    const BoardPowerConfig *validated_cfg; // 上一次校验通过的配置指针
+    app_mode_t mode;                       // 当前模式
+    app_mode_t validated_mode;             // 上一次校验通过的模式
+    inverter_run_mode_t inverter_run_mode; // 闭环/开环
+    AppFaultSnapshot fault_snapshot;       // 故障快照
+    AppFaultRecorder fault_recorder;       // 故障记录器
+    uint32_t previous_iin_sequence;        // 上一次输入电流有效的帧号
+    uint32_t previous_vin_sequence;        // 上一次输入电压有效的帧号
+    uint16_t mode0_dc_ready_count;         // MODE0 母线就绪连续计数
+    uint16_t previous_iin_raw;             // 上一次输入电流原始码
+    uint16_t previous_vin_raw;             // 上一次输入电压原始码
+    uint8_t rectifier_start_count;         // 整流启动过零确认计数
+    float previous_iin_a;                  // 上一次输入电流 [A]
+    float previous_vin_v;                  // 上一次输入电压 [V]
+    bool mode0_inverter_ready;             // MODE0 母线是否已就绪
+    bool rectifier_dc_ready;               // 整流级母线是否就绪
+    bool rectifier_start_ready;            // 整流级是否满足启动条件
+    bool previous_iin_valid;               // 上一次输入电流是否有效
+    bool previous_vin_valid;               // 上一次输入电压是否有效
+    bool board_config_valid;               // 板级参数是否通过校验
+    bool initialized;                      // 是否已成功初始化
 } AppControl;
 
 // 初始化控制实例：逆变 + 保护 + 状态机，并尝试初始化整流
@@ -88,10 +86,7 @@ bool AppControl_SetInverterRunMode(AppControl *app, inverter_run_mode_t mode);
 // 流程：换算 → 保护 → 状态机 → 按模式控制 → 生成 PWM 命令
 // 未获准运行时输出 0.5 中性占空比并撤销使能请求
 // 返回参数与实例有效；控制环失败通过故障位与安全输出上报，不靠返回值
-bool AppControl_Step(AppControl *app,
-                     const AdcRawFrame *raw,
-                     const AppCommand *command,
-                     AppOutput *out);
+bool AppControl_Step(AppControl *app, const AdcRawFrame *raw, const AppCommand *command, AppOutput *out);
 
 /* ── 以下是板级使用的单例接口，内部持有一个 AppControl ───────────────── */
 
