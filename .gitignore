@@ -1,0 +1,22 @@
+# 构建产物
+Debug/
+Release/
+*.o
+*.d
+*.elf
+*.map
+*.list
+*.bin
+*.hex
+*.autosave
+*.su
+
+# CubeIDE / Eclipse 工作区状态
+.metadata/
+.settings/language.settings.xml
+
+# Simulink / MATLAB 中间产物
+*.mexw64
+*.slxc
+simulink/slprj/
+slprj/
