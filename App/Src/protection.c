@@ -1,3 +1,20 @@
+/*
+ * 软件保护：判据、确认窗口与故障锁存。
+ *
+ * 与硬件 Break 的分工：BKIN 由定时器直接清 MOE，纳秒级、不经过本文件；
+ * 本文件处理需要"多拍判断"的软件判据，动作在一个 ADC 周期（50 us）内。
+ *
+ * 三类判据的确认策略不同，别一概而论：
+ *
+ *   立刻判、无去抖  测量配置非法（配置错了就是错了，没什么可滤的）
+ *   2 拍去抖        输入过流 / 输入过压 / 输出过压（滤单点噪声）
+ *   3 拍去抖        母线过压（Vdc 分压通道在 PWM 启动瞬间有开关振铃）
+ *   2000 拍（100 ms）测量无效（专门为躲开上电充电浪涌，见下方宏注释）
+ *
+ * 全局原则：**active_faults 每拍重建，latched_faults 只增不减**。
+ * 清除锁存必须显式调用 Protection_ClearLatched，且要求当拍无活动故障。
+ */
+
 #include "protection.h"
 
 #include <math.h>
@@ -24,6 +41,13 @@
  */
 #define PROTECTION_DC_OV_CONFIRM_SAMPLES     (3U)
 
+/*
+ * 校验保护阈值本身是否可用：全部有限、正数、且上下限关系合理。
+ *
+ * 这是"配置体检"，不是"现场判断"。它不通过时会**立即**报
+ * PROTECTION_FAULT_MEASUREMENT（无去抖）——因为阈值配错了，
+ * 后面所有判据都不可信，没有继续跑的道理。
+ */
 static bool Protection_ConfigValid(const ProtectionConfig *cfg)
 {
     return (cfg != NULL)
@@ -42,6 +66,11 @@ static bool Protection_ConfigValid(const ProtectionConfig *cfg)
         && (cfg->stale_limit_samples > 0U);
 }
 
+/*
+ * 测量值是否可用于判据：valid 标志为真，且所有通道都是有限值。
+ * 注意这里**不做量程检查**——量程检查在 measurement.c 的换算环节，
+ * 越界会直接让 measurement->valid 变假，走到这里就是"无效"这条路径。
+ */
 static bool Protection_MeasurementFinite(const Measurements *m)
 {
     return (m != NULL) && m->valid
@@ -51,6 +80,7 @@ static bool Protection_MeasurementFinite(const Measurements *m)
         && isfinite(m->vdc);
 }
 
+/* 全部状态清零。NULL 安全 */
 void Protection_Init(Protection *protection)
 {
     if (protection != NULL)
@@ -59,6 +89,20 @@ void Protection_Init(Protection *protection)
     }
 }
 
+/*
+ * 每拍评估全部软件判据。
+ *
+ * 顺序（前一条不通过就短路，后面的不再判）：
+ *   ① 配置非法        → 立即 MEASUREMENT
+ *   ② 测量无效        → 计数，达 2000 拍才 MEASUREMENT
+ *   ③ 测量有效        → 查采样序号停滞、各路过流/过压
+ *
+ * 返回本周期活动故障掩码，并**同时累加进 latched_faults**。
+ * latched_faults 不会被本函数清除；protection 为 NULL 时返回 CONTROL 故障。
+ *
+ * run_expected 只影响母线欠压判据：整流单级从低压被动母线起升时，
+ * 母线本来就低，不该按逆变侧的运行下限去报欠压。
+ */
 uint32_t Protection_Evaluate(Protection *protection,
                              const ProtectionConfig *cfg,
                              const Measurements *measurement,
@@ -222,6 +266,12 @@ uint32_t Protection_Evaluate(Protection *protection,
     return faults;
 }
 
+/*
+ * 外部强制置位故障（板级故障输入、启动阶段的自检失败等）。
+ *
+ * 本函数不带并发保护，**在 ISR 里请改用 App_TripFromISR**——
+ * 那个版本用短临界区做原子合并，避免与主循环互相覆盖故障位。
+ */
 void Protection_ForceFault(Protection *protection, uint32_t faults)
 {
     if (protection != NULL)
@@ -231,6 +281,15 @@ void Protection_ForceFault(Protection *protection, uint32_t faults)
     }
 }
 
+/*
+ * 清除锁存故障。
+ *
+ * 有一个刻意设置的"防误解锁"：**只有当拍没有任何活动故障时才允许清除**。
+ * 否则会出现"清掉 → 下一拍立刻重新锁存"的抖动，而真正的故障源还在。
+ * 各去抖计数器也一并清零，让清除后的重新判定从干净状态开始。
+ *
+ * 返回清除成功。
+ */
 bool Protection_ClearLatched(Protection *protection)
 {
     if ((protection == NULL)
