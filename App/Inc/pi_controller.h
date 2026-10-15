@@ -1,35 +1,31 @@
-#ifndef PI_CONTROLLER_H
-#define PI_CONTROLLER_H
+#pragma once
+
+/*
+ * 带输出限幅与抗积分饱和的离散 PI 控制器（梯形积分）。
+ *
+ * 抗饱和两种模式，由 kaw 选择：
+ *   kaw > 0 —— 反算法，用"实际输出 − 限幅前输出"回灌积分器
+ *   kaw = 0 —— 条件积分，只在输出未限幅时累加积分
+ * 整流级母线外环用这个，输出是输入电流幅值指令 [A]。
+ */
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+/* PI 实例状态。由 PiController_Init 初始化。 */
 typedef struct
 {
-    float kp;
-    float ki;
-    float kaw;
-    float sample_time_s;
-    float out_min;
-    float out_max;
-    float integrator;
-    float error_prev;
+    float kp;             // 比例增益
+    float ki;             // 积分增益
+    float kaw;            // 抗饱和增益；0 表示改用条件积分
+    float sample_time_s;  // 控制周期 [s]
+    float out_min;        // 输出下限
+    float out_max;        // 输出上限
+    float integrator;     // 积分器状态
+    float error_prev;     // 上一拍误差，用于梯形积分
 } PiController;
 
-/**
- * @brief 初始化带输出限幅和抗积分饱和的离散 PI 控制器。
- * @param[out] pi PI 控制器实例。
- * @param[in] kp 比例增益。
- * @param[in] ki 积分增益，必须非负。
- * @param[in] kaw 反算抗饱和增益，0 表示改用条件积分。
- * @param[in] sample_time_s 控制周期，单位 s。
- * @param[in] out_min 输出下限。
- * @param[in] out_max 输出上限。
- * @return 参数有限且范围合法时返回 true。
- */
+// 初始化。ki 必须非负；kaw=0 时走条件积分
+// 返回参数有限且范围合法
 bool PiController_Init(PiController *pi,
                        float kp,
                        float ki,
@@ -38,24 +34,9 @@ bool PiController_Init(PiController *pi,
                        float out_min,
                        float out_max);
 
-/**
- * @brief 复位 PI 历史误差，并将积分状态跟踪到指定输出。
- * @param[in,out] pi PI 控制器实例。
- * @param[in] output 期望的无扰复位输出，内部按输出上下限裁剪。
- */
+// 复位历史误差，并把积分状态无扰地跟踪到 output（内部按上下限裁剪）
 void PiController_Reset(PiController *pi, float output);
 
-/**
- * @brief 使用梯形积分执行一次 PI 控制和抗饱和更新。
- * @param[in,out] pi 已初始化的 PI 控制器实例。
- * @param[in] error 当前控制误差。
- * @return 限幅后的控制输出；实例或误差无效时返回 0。
- * @note 应按初始化时的 sample_time_s 固定周期调用。
- */
+// 执行一次 PI。必须按初始化时的 sample_time_s 固定周期调用
+// 返回限幅后的输出；实例或误差无效时返回 0
 float PiController_Step(PiController *pi, float error);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif

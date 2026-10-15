@@ -1,39 +1,37 @@
-#ifndef QPR_CONTROLLER_H
-#define QPR_CONTROLLER_H
+#pragma once
+
+/*
+ * 准比例谐振（QPR）控制器，Tustin 离散。
+ *
+ *      G(s) = Kp + Kr · 2ωc·s / (s² + 2ωc·s + ωr²)
+ *
+ * 与 PI 的区别：它在**某个特定频率**（ωr）上有极高增益，所以能对该频率的
+ * 正弦量做到近乎零稳态误差——正是交流量控制需要的。带宽 ωc 决定它对
+ * 频率漂移的容忍度：给宽一点，电网频率晃动时增益掉得少。
+ *
+ * 逆变级的电压外环与电流内环、整流级的输入电流内环都用它。
+ */
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+/* QPR 实例：离散系数 + 误差/输出历史。 */
 typedef struct
 {
-    float kp;
-    float b0;
-    float b2;
-    float a1;
-    float a2;
-    float out_min;
-    float out_max;
-    float e1;
-    float e2;
-    float y1;
-    float y2;
+    float kp;        // 比例增益
+    float b0;        // 离散分子系数
+    float b2;        // 离散分子系数
+    float a1;        // 离散分母系数
+    float a2;        // 离散分母系数
+    float out_min;   // 输出下限
+    float out_max;   // 输出上限
+    float e1;        // 上一拍误差
+    float e2;        // 上上拍误差
+    float y1;        // 上一拍输出
+    float y2;        // 上上拍输出
 } QprController;
 
-/**
- * @brief 初始化 Tustin 离散的准比例谐振控制器。
- * @param[out] qpr QPR 控制器实例。
- * @param[in] kp 比例增益。
- * @param[in] kr 谐振增益，必须非负。
- * @param[in] resonance_rad_s 谐振中心角频率，单位 rad/s。
- * @param[in] bandwidth_rad_s 谐振带宽，单位 rad/s。
- * @param[in] sample_time_s 控制周期，单位 s。
- * @param[in] out_min 输出下限。
- * @param[in] out_max 输出上限。
- * @return 参数及计算得到的离散系数有效时返回 true。
- */
+// 初始化。kr 必须非负；resonance_rad_s 为谐振角频率 [rad/s]，bandwidth_rad_s 为带宽 [rad/s]
+// sample_time_s 为控制周期 [s]。参数与算出的离散系数都有效才返回 true
 bool QprController_Init(QprController *qpr,
                         float kp,
                         float kr,
@@ -43,34 +41,16 @@ bool QprController_Init(QprController *qpr,
                         float out_min,
                         float out_max);
 
-/**
- * @brief 清零 QPR 的误差历史和谐振支路状态。
- * @param[in,out] qpr QPR 控制器实例；NULL 将被忽略。
- */
+// 清零误差历史与谐振支路状态。NULL 安全
 void QprController_Reset(QprController *qpr);
 
-/**
- * @brief 执行一次比例加准谐振控制，并在自身输出限幅时跟踪实际输出。
- * @param[in,out] qpr 已初始化的 QPR 控制器实例。
- * @param[in] error 当前控制误差。
- * @return 限幅后的控制输出；实例或误差无效时返回 0。
- * @note 应按初始化时的 sample_time_s 固定周期调用。
- */
+// 执行一次控制。必须按初始化时的 sample_time_s 固定周期调用
+// 返回限幅后的输出；实例或误差无效时返回 0
 float QprController_Step(QprController *qpr, float error);
 
-/**
- * @brief 将控制器谐振状态跟踪到下游最终实际施加的输出。
- * @param[in,out] qpr QPR 控制器实例。
- * @param[in] error 生成本周期输出时使用的误差。
- * @param[in] applied_output 经后级限幅或调制后实际施加的控制量。
- * @note 用于补偿 SVPWM 等控制器外部限幅，避免谐振状态继续积累。
- */
+// 把谐振状态跟踪到下游**实际施加**的控制量
+// 用于补偿 SVPWM 等后级限幅，否则谐振器会继续按"以为发出去了"的量积累
+// applied_output 为经后级限幅或调制后真正生效的值
 void QprController_TrackOutput(QprController *qpr,
                                float error,
                                float applied_output);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif

@@ -1,77 +1,48 @@
-#ifndef PHASE_RECURRENCE_H
-#define PHASE_RECURRENCE_H
+#pragma once
+
+/*
+ * 无查表正交相位发生器。
+ *
+ * 用旋转矩阵递推 (sin, cos)：每拍做一次乘加即可推进一个采样周期。
+ * 好处是 20 kHz 快环里完全没有 sinf/cosf 调用——三角函数只在上电和切频
+ * 这些低频路径上出现。代价是浮点误差会累积，所以每若干拍按模长归一化一次。
+ */
 
 #include "app_types.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+/* 相位递推状态。 */
 typedef struct
 {
-    float sin_value;
-    float cos_value;
-    float sin_step;
-    float cos_step;
-    float sample_time_s;
-    uint16_t renorm_count;
-    uint16_t renorm_period;
+    float sin_value;        // 当前 sin(θ)
+    float cos_value;        // 当前 cos(θ)
+    float sin_step;         // 每拍 sin 增量（由频率决定）
+    float cos_step;         // 每拍 cos 增量
+    float sample_time_s;    // 递推周期 [s]
+    uint16_t renorm_count;  // 距上次归一化已过的拍数
+    uint16_t renorm_period; // 归一化周期（默认 256 拍）
 } PhaseRecurrence;
 
-/**
- * @brief 初始化基于正余弦递推的相位发生器。
- * @param[out] phase 相位递推实例。
- * @param[in] frequency_hz 基波频率，单位 Hz，可为负值。
- * @param[in] sample_time_s 递推周期，单位 s。
- * @param[in] initial_angle_rad 初始电角度，单位 rad。
- * @return 参数有限、采样满足 |frequency_hz| * sample_time_s < 0.5 时返回 true。
- */
+// 初始化。frequency_hz 为基波频率 [Hz]，可为负（相序反向）
+// initial_angle_rad 为初始电角度 [rad]。满足 |f|·Ts < 0.5 的奈奎斯特约束才返回 true
 bool PhaseRecurrence_Init(PhaseRecurrence *phase,
                           float frequency_hz,
                           float sample_time_s,
                           float initial_angle_rad);
 
-/**
- * @brief 更新相位递推频率而不改变当前相角。
- * @param[in,out] phase 已设置有效采样周期的相位实例。
- * @param[in] frequency_hz 新频率，单位 Hz。
- * @return 频率有限且满足奈奎斯特约束时返回 true。
- */
+// 只改频率，不动当前相角。用于运行中切频
 bool PhaseRecurrence_SetFrequency(PhaseRecurrence *phase, float frequency_hz);
 
-/**
- * @brief 直接设置当前电角度。
- * @param[in,out] phase 相位递推实例。
- * @param[in] angle_rad 电角度，单位 rad。
- * @return 指针和角度有效时返回 true。
- */
+// 直接设置当前电角度 [rad]
 bool PhaseRecurrence_SetAngle(PhaseRecurrence *phase, float angle_rad);
 
-/**
- * @brief 将当前相位复位到 0 rad，同时保留频率和采样周期。
- * @param[in,out] phase 相位递推实例；NULL 将被忽略。
- */
+// 相位归零，保留频率与采样周期。NULL 安全
 void PhaseRecurrence_Reset(PhaseRecurrence *phase);
 
-/**
- * @brief 按配置频率推进一个采样周期，并周期性归一化正余弦幅值。
- * @param[in,out] phase 已初始化的相位递推实例。
- * @note 快环内仅进行乘加，默认每 256 拍归一化一次以抑制累计误差。
- */
+// 推进一个采样周期，并按 renorm_period 周期性归一化幅值
+// 注意：在 20 kHz 快环里，"关掉门极"的分支也要调用它，否则重新使能时相位会跳
 void PhaseRecurrence_Step(PhaseRecurrence *phase);
 
-/**
- * @brief 根据当前相位生成正相序三相正弦量。
- * @param[in] phase 当前相位递推实例。
- * @param[in] peak 三相量的峰值。
- * @return A=sinθ、B=sin(θ-120°)、C=sin(θ+120°) 的三相结果；
- *         输入无效时返回零值。
- */
+// 按当前相位生成正相序三相正弦量，peak 为峰值
+// 返回 A=sinθ、B=sin(θ−120°)、C=sin(θ+120°)；输入无效时返回全零
 ThreePhase PhaseRecurrence_GetThreePhase(const PhaseRecurrence *phase,
                                          float peak);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif

@@ -1,145 +1,94 @@
-#ifndef MEASUREMENT_H
-#define MEASUREMENT_H
+#pragma once
+
+/*
+ * ADC 解包、通道标定与三相量重构。
+ *
+ * 换算统一为一条式子：物理量 = (原始码 − 零点码) × 每码比例。
+ * gain 里已经含了传感器极性、互感器变比、运放增益和分压比，所以
+ * **改硬件只需改 app_config.c 里对应通道的三个数**。
+ *
+ * 板上只采两相电流（Ia/Ib）与两路线电压（Vab/Vbc），第三相按
+ * 三线制关系重构：ic = −(ia+ib)、vca = −(vab+vbc)。
+ *
+ * 三种模式用的通道不同，所以解包与换算各有一套：
+ *   MODE0 全帧（四 Rank、含 Vin 冗余校验）
+ *   MODE1 仅 Ib/Ia/Vab/Vbc
+ *   MODE2 仅 Iin/Vin/Vdc
+ */
 
 #include "app_types.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+/* 单通道标定。物理量 = (原始码 − offset_count) × gain。 */
 typedef struct
 {
-    float offset_count;
-    float gain;
-    uint16_t raw_min;
-    uint16_t raw_max;
+    float offset_count;   // 零输入对应的 ADC 原始码
+    float gain;           // 每码对应的物理量（含传感器极性与分压比）
+    uint16_t raw_min;     // 合法原始码下限；超出判"测量无效"
+    uint16_t raw_max;     // 合法原始码上限
 } ChannelCalibration;
 
+/* 七路通道标定表。前三路供整流级，中间四路供逆变级，vdc 两级共用。 */
 typedef struct
 {
-    ChannelCalibration iin;
-    ChannelCalibration vin;
-    ChannelCalibration ia;
-    ChannelCalibration ib;
-    ChannelCalibration vab;
-    ChannelCalibration vbc;
-    ChannelCalibration vdc;
+    ChannelCalibration iin;   // 整流输入电流 [A]
+    ChannelCalibration vin;   // 整流输入电压 [V]
+    ChannelCalibration ia;    // 三相 A 相电流 [A]
+    ChannelCalibration ib;    // 三相 B 相电流 [A]
+    ChannelCalibration vab;   // 线电压 Vab [V]
+    ChannelCalibration vbc;   // 线电压 Vbc [V]
+    ChannelCalibration vdc;   // 直流母线电压 [V]
 } MeasurementCalibration;
 
-/**
- * @brief 检查七个 ADC 通道的偏置、增益和原始码有效范围。
- * @param[in] cal 测量标定表。
- * @return 所有通道参数有限、增益非零且 raw_min 小于 raw_max 时返回 true。
- */
+// 校验七路通道的零点、增益与原始码范围是否都合法
 bool Measurement_CalibrationValid(const MeasurementCalibration *cal);
 
-/**
- * @brief 检查逆变测试所需的 Ia、Ib、Vab、Vbc 四个通道标定。
- * @param[in] cal 测量标定表。
- * @return 四个逆变相关通道均有效时返回 true；Iin/Vin/Vdc 不参与判断。
- */
-bool Measurement_InverterCalibrationValid(
-    const MeasurementCalibration *cal);
+// 只校验逆变用到的 Ia/Ib/Vab/Vbc 四路（MODE1 用；Iin/Vin/Vdc 不参与）
+bool Measurement_InverterCalibrationValid(const MeasurementCalibration *cal);
 
-/**
- * @brief 检查整流所需的 Iin、Vin、Vdc 三个通道标定。
- * @param[in] cal 测量标定表。
- * @return 三个整流相关通道均有效时返回 true；三相输出通道不参与判断。
- */
-bool Measurement_RectifierCalibrationValid(
-    const MeasurementCalibration *cal);
+// 只校验整流用到的 Iin/Vin/Vdc 三路（MODE2 用；三相通道不参与）
+bool Measurement_RectifierCalibrationValid(const MeasurementCalibration *cal);
 
-/**
- * @brief 解包四个 ADC 双重规则同步 CDR 值并执行 Vin 冗余一致性检查。
- * @param[in] pairs 四个 rank；每项低 16 位为 ADC1，高 16 位为 ADC2，
- *            映射依次为 Iin/Vin、Ib/Ia、Vab/Vbc、Vdc/Vin诊断。
- * @param[in] sequence 当前 DMA 完整帧序号。
- * @param[in] vin_tolerance_counts 两路 Vin 原始码允许的最大绝对差值。
- * @param[out] out 解包后的原始采样帧。
- * @return 指针有效且两路 Vin 差值不超过容差时返回 true。
- * @note 即使一致性检查失败，out 仍包含本帧数据，但 valid 为 false。
- */
+// 解包四个双 ADC 的 CDR 字，并做 Vin 冗余一致性检查
+// pairs 每项低 16 位为 ADC1、高 16 位为 ADC2，映射依次为：
+//   Iin/Vin、Ib/Ia、Vab/Vbc、Vdc/Vin诊断
+// 返回两路 Vin 差异未超容差；**失败时 out 仍是本帧数据但 valid=false**
 bool Measurement_UnpackDualAdcPairs(const uint32_t pairs[4],
                                     uint32_t sequence,
                                     uint16_t vin_tolerance_counts,
                                     AdcRawFrame *out);
 
-/**
- * @brief Unpack the three channels required by rectifier-only MODE2.
- * @param[in] pairs Four packed dual-ADC CDR rank values.
- * @param[in] sequence Complete DMA frame sequence number.
- * @param[out] out Unpacked raw frame.
- * @return true when the pointers are valid.
- * @note Uses PA5/Iin, ADC2 rank-1 PC5/Vin and PC4/Vdc. The repeated
- *       rank-4 PC5 diagnostic is retained in the frame but does not gate
- *       MODE2 validity; MODE0 continues to use the strict dual check.
- */
+// MODE2 专用解包：只取 PA5/Iin、ADC2 Rank1 的 PC5/Vin 和 PC4/Vdc
+// Rank4 那路 PC5 重复采样在单级台架上紧跟悬空通道，故**不用它做有效性门控**
+// 返回指针有效
 bool Measurement_UnpackRectifierAdcPairs(const uint32_t pairs[4],
                                          uint32_t sequence,
                                          AdcRawFrame *out);
 
-/**
- * @brief 按现有 ADC rank 映射解包逆变测试采样帧。
- * @param[in] pairs 四个 ADC CDR 打包值。
- * @param[in] sequence DMA 完整帧序号。
- * @param[out] out 解包后的原始采样帧。
- * @return 指针有效时返回 true。
- * @note 仅提取 PC0/PC1/PC2/PC3 的 Ib/Ia/Vab/Vbc；其余 rank 被忽略。
- */
+// MODE1 专用解包：只取 PC0/PC1 的 Ib/Ia 与 PC2/PC3 的 Vab/Vbc，其余 Rank 忽略
+// **注意：本模式不填 raw.vdc**，Vdc 由 app_control.c 用用户 SET 值替代
+// 返回指针有效
 bool Measurement_UnpackInverterAdcPairs(const uint32_t pairs[4],
                                         uint32_t sequence,
                                         AdcRawFrame *out);
 
-/**
- * @brief 将 ADC 原始码按通道标定转换为物理量并重构缺失的第三相。
- * @param[in] cal 通道标定表，换算关系为 (raw - offset_count) * gain。
- * @param[in] raw 有效的原始 ADC 帧。
- * @param[out] out 电流单位 A、电压单位 V 的完整测量结果。
- * @return 所有通道原始码在范围内且换算结果有限时返回 true。
- * @note 三线制下按 ia+ib+ic=0 和 vab+vbc+vca=0 重构第三相。
- */
+// 全帧换算：七路都换算，并重构第三相
+// 任一通道原始码越界或换算结果非有限值时返回 false
 bool Measurement_Convert(const MeasurementCalibration *cal,
                          const AdcRawFrame *raw,
                          Measurements *out);
 
-/**
- * @brief 仅换算逆变测试所需的四个通道并重构第三相。
- * @param[in] cal 通道标定表。
- * @param[in] raw 有效的原始 ADC 帧。
- * @param[out] out 完整三相测量结果；Iin/Vin/Vdc 固定为 0。
- * @return 四个逆变通道换算及三相重构均有效时返回 true。
- */
+// 仅换算逆变四路并重构第三相；Iin/Vin/Vdc 输出固定为 0
 bool Measurement_ConvertInverter(const MeasurementCalibration *cal,
                                  const AdcRawFrame *raw,
                                  Measurements *out);
 
-/**
- * @brief 仅换算整流所需的 Iin、Vin、Vdc 三个通道。
- * @param[in] cal 通道标定表。
- * @param[in] raw 有效的原始 ADC 帧。
- * @param[out] out 整流测量结果；三相输出量固定为 0。
- * @return 三个整流通道换算结果均有限且原始码在范围内时返回 true。
- */
+// 仅换算整流三路；三相输出量固定为 0
 bool Measurement_ConvertRectifier(const MeasurementCalibration *cal,
                                   const AdcRawFrame *raw,
                                   Measurements *out);
 
-/**
- * @brief 将三相相电压执行幅值不变 Clarke 变换。
- * @param[in] m 有效的三相测量值。
- * @return αβ 电压，单位 V；输入无效时返回零向量。
- */
+// 三相相电压的幅值不变 Clarke 变换，返回 αβ 电压 [V]；输入无效返回零向量
 AlphaBeta Measurement_VoltageAlphaBeta(const Measurements *m);
 
-/**
- * @brief 将三相电流执行幅值不变 Clarke 变换。
- * @param[in] m 有效的三相测量值。
- * @return αβ 电流，单位 A；输入无效时返回零向量。
- */
+// 三相电流的幅值不变 Clarke 变换，返回 αβ 电流 [A]；输入无效返回零向量
 AlphaBeta Measurement_CurrentAlphaBeta(const Measurements *m);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif

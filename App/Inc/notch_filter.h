@@ -1,57 +1,39 @@
-#ifndef NOTCH_FILTER_H
-#define NOTCH_FILTER_H
+#pragma once
+
+/*
+ * 二阶数字陷波器（Tustin 离散）。
+ *
+ * 用途：滤掉母线电压上 100 Hz 的二倍频纹波，否则它会串进电压外环，
+ * 让整流级在功率因数上出问题。中心频率设成两倍线频即可。
+ */
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+/* 二阶节系数与两个状态变量。直接实现（II 型）结构。 */
 typedef struct
 {
-    float b0;
-    float b1;
-    float b2;
-    float a1;
-    float a2;
-    float s1;
-    float s2;
-    bool enabled;
+    float b0;         // 分子系数
+    float b1;         // 分子系数
+    float b2;         // 分子系数
+    float a1;         // 分母系数
+    float a2;         // 分母系数
+    float s1;         // 状态变量 1（直接实现型）
+    float s2;         // 状态变量 2
+    bool enabled;     // false 时 Step 直接旁路输入
 } NotchFilter;
 
-/**
- * @brief 初始化二阶数字陷波器并计算 Tustin 离散系数。
- * @param[out] notch 陷波器实例。
- * @param[in] center_rad_s 陷波中心角频率，单位 rad/s。
- * @param[in] zero_damping 分子零点阻尼系数，必须非负且不大于极点阻尼。
- * @param[in] pole_damping 分母极点阻尼系数，必须大于 0。
- * @param[in] sample_time_s 调用周期，单位 s。
- * @return 参数和离散系数有效时返回 true。
- */
+// 用 Tustin 法离散并初始化。center_rad_s 为中心角频率 [rad/s]
+// zero_damping 为分子零点阻尼（≥0 且 ≤ pole_damping）；pole_damping 为极点阻尼（>0）
+// sample_time_s 为调用周期 [s]。参数或系数无效时返回 false
 bool NotchFilter_Init(NotchFilter *notch,
                       float center_rad_s,
                       float zero_damping,
                       float pole_damping,
                       float sample_time_s);
 
-/**
- * @brief 按给定输入的直流稳态复位滤波器状态。
- * @param[in,out] notch 陷波器实例；NULL 将被忽略。
- * @param[in] input 当前输入值，用于无阶跃地初始化内部状态。
- */
+// 按给定输入的直流稳态复位内部状态，避免复位瞬间产生阶跃。NULL 安全
 void NotchFilter_Reset(NotchFilter *notch, float input);
 
-/**
- * @brief 执行一次二阶陷波滤波。
- * @param[in,out] notch 已初始化的陷波器实例。
- * @param[in] input 当前采样值。
- * @return 滤波输出；实例无效、滤波未启用或数值异常时旁路返回 input。
- * @note 应按初始化时的 sample_time_s 固定周期调用。
- */
+// 执行一次滤波。必须按初始化时的 sample_time_s 固定周期调用
+// 返回滤波输出；实例无效、未启用或数值异常时**旁路返回 input**
 float NotchFilter_Step(NotchFilter *notch, float input);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
