@@ -1,0 +1,217 @@
+#include "acdc_application.h"
+
+#include <math.h>
+#include <stddef.h>
+#include <string.h>
+
+static void AcdcApp_SafeOutput(AcdcControlOutput *out) {
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->low_side_duty = 0.5f;
+    }
+}
+
+static void AcdcApp_LatchFault(AcdcApplication *app, uint32_t fault) {
+    app->faults |= fault;
+    app->start_requested = false;
+    /*
+     * Commissioning 锁优先级最高。未标定硬件即使遇到故障也不能通过
+     * “清故障”路径进入 OFF，再被按键启动。
+     */
+    app->state = ACDC_HARDWARE_COMMISSIONED ? ACDC_STATE_FAULT : ACDC_STATE_LOCKED;
+}
+
+static bool AcdcApp_MeasurementProtection(AcdcApplication *app, const AcdcMeasurement *measurement) {
+    if (fabsf(measurement->iin_a) > ACDC_IIN_ABS_MAX_A) {
+        AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERCURRENT);
+        return false;
+    }
+    if (fabsf(measurement->vin_v) > ACDC_VIN_INSTANT_MAX_V) {
+        AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERVOLTAGE);
+        return false;
+    }
+    if (measurement->vdc_v > ACDC_DC_MAX_V) {
+        AcdcApp_LatchFault(app, ACDC_FAULT_BUS_OVERVOLTAGE);
+        return false;
+    }
+    return true;
+}
+
+static void AcdcApp_RunControl(AcdcApplication *app, AcdcControlOutput *out) {
+    bool ok;
+
+    /*
+     * 母线跌到 RUN 下限后先立即关门，再等 40 ms 判断是否为真实欠压。
+     * 不能等 40 ms 才关，也不能让控制器的“母线下限失败”抢先报成
+     * ACDC_FAULT_CONTROL，否则现场看不到真正的故障原因。
+     */
+    if (app->measurement.vdc_v < ACDC_DC_RUN_MIN_V) {
+        if (app->undervoltage_count < UINT32_MAX) app->undervoltage_count++;
+        (void)AcdcControl_Step(&app->control, &app->measurement, false, out);
+        AcdcApp_SafeOutput(out);
+        if (app->undervoltage_count >= ACDC_UNDERVOLTAGE_CONFIRM_SAMPLES)
+            AcdcApp_LatchFault(app, ACDC_FAULT_BUS_UNDERVOLTAGE);
+        return;
+    }
+    app->undervoltage_count = 0U;
+
+    ok = AcdcControl_Step(&app->control, &app->measurement, true, out);
+    if (!ok || !out->valid || !out->gates_enabled) {
+        AcdcApp_LatchFault(app, ACDC_FAULT_CONTROL);
+        AcdcApp_SafeOutput(out);
+    }
+}
+
+void AcdcApp_Init(AcdcApplication *app) {
+    const AcdcControlConfig cfg = {
+        .vbus_target_v = ACDC_DC_VOLTAGE_TARGET_V,
+        .vbus_min_v = ACDC_DC_RUN_MIN_V,
+        .vbus_max_v = ACDC_DC_MAX_V,
+        .vin_rms_min_v = ACDC_VIN_RMS_MIN_V,
+        .vin_abs_max_v = ACDC_VIN_INSTANT_MAX_V,
+        .iin_abs_max_a = ACDC_IIN_ABS_MAX_A,
+        .iin_command_max_a = ACDC_IIN_COMMAND_MAX_A,
+        .vbus_slew_v_per_s = ACDC_DC_REFERENCE_SLEW_V_PER_S,
+        .duty_min = ACDC_DUTY_MIN,
+        .duty_max = ACDC_DUTY_MAX,
+    };
+
+    if (app == NULL) return;
+    memset(app, 0, sizeof(*app));
+    app->state = ACDC_HARDWARE_COMMISSIONED ? ACDC_STATE_OFF : ACDC_STATE_LOCKED;
+    app->start_requested = ACDC_AUTO_START != 0;
+    if (!AcdcControl_Init(&app->control, &cfg)) {
+        app->state = ACDC_HARDWARE_COMMISSIONED ? ACDC_STATE_FAULT : ACDC_STATE_LOCKED;
+        app->faults = ACDC_FAULT_CONTROL;
+    }
+}
+
+void AcdcApp_FastStep(AcdcApplication *app, const uint32_t frame[ACDC_ADC_RANK_COUNT], AcdcControlOutput *out) {
+    AcdcMeasurement measurement;
+    AcdcControlOutput local;
+    bool measured;
+
+    if ((app == NULL) || (out == NULL)) return;
+    AcdcApp_SafeOutput(&local);
+    measured = AcdcMeasurement_Convert(frame, &measurement);
+    app->measurement = measurement;
+    app->control_output = local;
+
+    if (!measured) {
+        if (app->invalid_count < UINT32_MAX) app->invalid_count++;
+        /*
+         * RUN 时绝不在无效测量下继续保留门极；先立即关门，再在连续
+         * 2000 拍（100 ms）后锁存。启动阶段则允许 ADC/预充瞬间越限。
+         */
+        if (measurement.iin_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERCURRENT);
+        else if (measurement.vdc_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_BUS_OVERVOLTAGE);
+        else if (measurement.vin_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERVOLTAGE);
+        else if ((app->state == ACDC_STATE_RUN) || (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES))
+            AcdcApp_LatchFault(app, ACDC_FAULT_MEASUREMENT);
+        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
+        AcdcApp_SafeOutput(out);
+        return;
+    }
+    app->invalid_count = 0U;
+
+    if (!AcdcApp_MeasurementProtection(app, &measurement)) {
+        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
+        AcdcApp_SafeOutput(out);
+        return;
+    }
+
+    if (app->state == ACDC_STATE_LOCKED) {
+        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
+        AcdcApp_SafeOutput(out);
+        return;
+    }
+
+    if ((app->state == ACDC_STATE_FAULT) || !app->start_requested) {
+        app->state = (app->state == ACDC_STATE_FAULT) ? ACDC_STATE_FAULT : ACDC_STATE_OFF;
+        app->precharge_count = 0U;
+        app->undervoltage_count = 0U;
+        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
+        AcdcApp_SafeOutput(out);
+        return;
+    }
+
+    if ((app->state == ACDC_STATE_OFF) || (app->state == ACDC_STATE_WAIT)) {
+        bool ready;
+
+        app->state = ACDC_STATE_WAIT;
+        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
+        ready = (local.input_voltage_rms_v >= ACDC_VIN_RMS_MIN_V) &&
+                (measurement.vdc_v >= fmaxf(ACDC_DC_PRECHARGE_MIN_V, ACDC_DC_RUN_MIN_V)) &&
+                (measurement.vdc_v <= ACDC_DC_START_MAX_V);
+        if (ready) {
+            if (app->precharge_count < UINT32_MAX) app->precharge_count++;
+        } else {
+            app->precharge_count = 0U;
+        }
+        if (app->precharge_count >= ACDC_PRECHARGE_CONFIRM_SAMPLES) {
+            app->state = ACDC_STATE_RUN;
+            app->undervoltage_count = 0U;
+        } else {
+            AcdcApp_SafeOutput(out);
+            return;
+        }
+    }
+
+    if (app->state == ACDC_STATE_RUN) {
+        AcdcApp_RunControl(app, out);
+        app->control_output = *out;
+    }
+}
+
+void AcdcApp_ToggleRequest(AcdcApplication *app) {
+    if (app == NULL) return;
+    if (!ACDC_HARDWARE_COMMISSIONED) {
+        app->state = ACDC_STATE_LOCKED;
+        app->start_requested = false;
+        return;
+    }
+    if (app->state == ACDC_STATE_LOCKED) return;
+    if (app->state == ACDC_STATE_FAULT) {
+        app->faults = 0U;
+        app->state = ACDC_STATE_OFF;
+        app->start_requested = false;
+        app->invalid_count = 0U;
+        app->precharge_count = 0U;
+        app->undervoltage_count = 0U;
+        AcdcControl_Reset(&app->control);
+        return;
+    }
+    app->start_requested = !app->start_requested;
+    if (!app->start_requested) {
+        app->state = ACDC_STATE_OFF;
+        app->precharge_count = 0U;
+        app->undervoltage_count = 0U;
+        AcdcControl_Reset(&app->control);
+    }
+}
+
+void AcdcApp_LatchExternalFault(AcdcApplication *app) {
+    if (app != NULL) AcdcApp_LatchFault(app, ACDC_FAULT_EXTERNAL_BREAK);
+}
+
+void AcdcApp_LatchMeasurementFault(AcdcApplication *app) {
+    if (app != NULL) AcdcApp_LatchFault(app, ACDC_FAULT_MEASUREMENT);
+}
+
+void AcdcApp_LatchControlFault(AcdcApplication *app) {
+    if (app != NULL) AcdcApp_LatchFault(app, ACDC_FAULT_CONTROL);
+}
+
+void AcdcApp_GetSnapshot(const AcdcApplication *app, AcdcSnapshot *snapshot) {
+    if ((app == NULL) || (snapshot == NULL)) return;
+    snapshot->state = app->state;
+    snapshot->faults = app->faults;
+    snapshot->iin_a = app->measurement.iin_a;
+    snapshot->vin_v = app->measurement.vin_v;
+    snapshot->vcf_v = app->measurement.vcf_v;
+    snapshot->vdc_v = app->measurement.vdc_v;
+    snapshot->duty_low_side = app->control_output.low_side_duty;
+    snapshot->current_reference_a = app->control_output.current_reference_a;
+    snapshot->input_voltage_rms_v = app->control_output.input_voltage_rms_v;
+    snapshot->gates_enabled = app->control_output.gates_enabled;
+}

@@ -140,6 +140,11 @@ powershell -ExecutionPolicy Bypass -File .\host_tests\run_acdc_halfbridge_sim.ps
 单半桥 ACDC 的结论、限制和波形见
 [`docs/ACDC_HALFBRIDGE_SIM.md`](docs/ACDC_HALFBRIDGE_SIM.md)。
 
+对应的可直接编译 STM32 工程在
+[`standalone/acdc_halfbridge_f407`](standalone/acdc_halfbridge_f407)：
+默认安全锁关闭门极，使用现有 `Vin/Iin/Vcf/Vdc` 四路采样，A/B 半桥可选，
+并已完成 CubeIDE Debug/Release 构建。
+
 ---
 
 ## 引脚分配

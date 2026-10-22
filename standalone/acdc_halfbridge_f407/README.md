@@ -1,0 +1,194 @@
+# 单半桥 ACDC · STM32F407 独立工程
+
+本项目实现：
+
+```text
+单相 AC → 4×肖特基不控全桥 → Lf/Cf → Lb → 单半桥 Boost → Cbus
+```
+
+目标母线为 62 V。控制只使用现有硬件能提供的
+`Vin / Iin / Vcf / Vdc` 四路 ADC，不假设另有一路 `Lb` 电流传感器。
+
+> 这是根据平均模型和现场问题新写的独立工程，不复用旧版“双半桥有源 PFC”
+> 的 PWM 和控制入口。旧工程仍保留在仓库其他分支。
+
+## 1. 当前安全状态
+
+编译结果可用，但默认**不会开管**。`App/Inc/acdc_config.h` 中：
+
+```c
+#define ACDC_HARDWARE_COMMISSIONED (0)
+```
+
+这是刻意的上电安全锁。未完成以下事项前不要改成 `1`：
+
+1. 确认实际留存的是 A 组还是 B 组半桥；
+2. 标定 `Iin / Vin / Vcf / Vdc`；
+3. 用限流电源、预充电阻/NTC 验证零母线合闸；
+4. 示波器确认 1 us 死区、互补关系和自举高侧供电。
+
+完成后按 [COMMISSIONING.md](docs/COMMISSIONING.md) 逐项验收。
+
+## 2. 硬件接口
+
+### 2.1 半桥选择
+
+| 逻辑组 | 高侧 | 低侧 | TIM8 通道 | 默认 |
+|---|---|---|---|---|
+| A | PC7 | PB0 | CH2 / CH2N，PWM1 | **是** |
+| B | PA7 | PC6 | CH1N / CH1，CH1 配 PWM2 | 可选 |
+
+切换 B 组，在 `acdc_config.h` 改：
+
+```c
+#define ACDC_ACTIVE_HALFBRIDGE_LEG ACDC_HALFBRIDGE_LEG_B
+```
+
+两组通道都完成了定时器配置，但同一时间只会使能被选中的一组 CCER；未选中的
+一组保持门极关闭。
+
+### 2.2 ADC 与保护
+
+双 ADC 由 TIM8 CH4 的 TRGO 在 20 kHz 中心对齐周期内触发，DMA 使用两块交替
+帧，避免 CPU 与 DMA 同时访问同一帧。
+
+| 物理量 | 引脚 | ADC | rank |
+|---|---|---|---|
+| `Iin`（有符号交流电流） | PA5 | ADC1_IN5 | 1 低 16 位 |
+| `Vin`（交流电压） | PC5 | ADC2_IN15 | 1 高 16 位 |
+| `Vcf`（桥后 LC 电容电压） | **PC2** | ADC1_IN12 | 3 低 16 位 |
+| `Vdc`（母线电压） | PC4 | ADC1_IN14 | 4 低 16 位 |
+| 外部 Break | PA6 | TIM8_BKIN，高有效 | — |
+| 启动/停止/清故障 | PC13 | USER_KEY，低有效 | — |
+| 状态 LED | PB8 | GPIO | — |
+
+**PC2 是复用点**：原工程把它标为 `ADC_VAB`。新拓扑必须把 PC2 前端的电压
+采样接到二极管桥后的 `Cf`，并确认该分压网络不会超过 ADC 输入范围。
+
+## 3. 控制结构
+
+```text
+1 kHz 母线 PI + 100 Hz 陷波
+        │
+        └─► Iamp（输入电流 RMS 指令）
+                │
+                └─► Iref = Iamp · |Vac| / Vin_rms
+                        │
+                        └─► 20 kHz 输入电流 PI → vL
+                                │
+                                └─► d_low = 1 − (vCf − vL) / Vbus
+```
+
+关键实现：
+
+- 400 点、20 ms 滑动窗口计算 `Vin_rms`，与 50 Hz 严格对应；
+- 电流反馈使用 `fabs(Iin)`，不需要 `Lb` 电流传感器；
+- 下管占空比限制为 5%–95%，最低 5% 用来刷新高侧自举电容；
+- 高压侧比较值使用 `1-d_low`，死区由 TIM8 硬件插入；
+- 软启动斜率 60 V/s；
+- 首次开管时参考从当前母线下方 1 V 起坡，避免先等参考从 0 V 爬升；
+- 外环程序限幅 5.5 A RMS，但硬件瞬时过流阈值仍是 5.6 A；
+- 过流、输入过压、母线过压、运行中测量失效、控制失败、BKIN 全部锁存，
+  不自动恢复。
+
+## 4. 状态与操作
+
+| 状态 | 行为 | LED |
+|---|---|---|
+| `LOCKED` | 未 commissioning，永不开管 | 100 ms 闪 |
+| `OFF` | 测量正常，等待按键 | 500 ms 闪 |
+| `WAIT` | 等 Vin RMS 和预充稳定 100 ms | 500 ms 闪 |
+| `RUN` | 闭环运行 | 常亮 |
+| `FAULT` | 门极锁存关闭 | 100 ms 闪 |
+
+按键消抖 30 ms：
+
+- `OFF/WAIT/RUN`：切换启动请求；
+- `FAULT`：清除锁存并回到 `OFF`，需要再按一次才重新请求启动。
+
+默认 `ACDC_AUTO_START=0`，即每次上电后必须按键启动。
+
+## 5. 保护阈值
+
+| 项目 | 阈值 | 行为 |
+|---|---:|---|
+| 输入电流瞬时值 | >5.6 A | 立即锁存 |
+| 输入电压瞬时值 | >65 V | 立即锁存 |
+| 母线过压 | >66 V | 立即锁存 |
+| 母线运行欠压 | <30 V 连续 40 ms | 立即关门，随后锁存 |
+| 运行中测量无效 | 一旦发生 | 当拍关门并锁存 |
+| 启动前测量无效 | 连续 100 ms | 锁存 |
+| TIM8 BKIN | 高有效 | 硬件清 MOE + 软件锁存 |
+| 控制结果无效 | 任一拍 | 立即锁存 |
+
+## 6. 仿真结果（只用交流输入电流反馈）
+
+本工程的控制规律在独立平均模型
+[`host_tests/sim_input_current.c`](host_tests/sim_input_current.c) 中验证：
+
+| 输入 | 负载 | 母线均值 | PF | 电流 THD |
+|---|---:|---:|---:|---:|
+| 31 V RMS | 1.8 A | 61.36 V | 0.983 | 14.4% |
+| 36 V RMS | 1.8 A | 61.90 V | 0.990 | 12.2% |
+| 41 V RMS | 1.8 A | 61.90 V | 0.990 | 12.8% |
+| 36 V RMS | 1.0 A | 61.95 V | 0.993 | 11.3% |
+
+这说明“只测网侧电流”仍可闭环，但：
+
+- THD 仍在 11%–15%，不能宣传满足 THD<5%；
+- 31 V 满载时输入电流已到 3.78 A RMS，峰值约 5.4 A，距离 5.6 A OCP
+  只有约 3%；
+- 仿真效率未计开关、磁芯、死区和驱动损耗。
+
+## 7. 编译与测试
+
+宿主机算法测试：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\host_tests\run_tests.ps1
+```
+
+编译功率级参考仿真：
+
+```powershell
+gcc -std=c11 -O2 -Wall -Wextra host_tests\sim_input_current.c -lm -o sim_acdc.exe
+.\sim_acdc.exe 36 1.8 10 2 --ilimit=5.5
+```
+
+CubeIDE 2.2.0 已实际构建通过（下面是默认 `COMMISSIONED=0` 安全锁定构建的尺寸）：
+
+```text
+Debug:   text 24380 B, data 92 B, bss 4188 B
+Release: text 13996 B, data 92 B, bss 4188 B
+```
+
+命令行复编（把工作区路径换成自己的临时目录）：
+
+```powershell
+& "C:\ST\STM32CubeIDE_2.2.0\STM32CubeIDE\stm32cubeidec.exe" `
+  -nosplash -consoleLog `
+  -application org.eclipse.cdt.managedbuilder.core.headlessbuild `
+  -data "$env:TEMP\acdc_cubeide_ws" `
+  -import "D:\stm32proj\three-phase-inverter-readable\standalone\acdc_halfbridge_f407" `
+  -cleanBuild "acdc_halfbridge_f407/Release"
+```
+
+构建产物位于 `Debug/` 和 `Release/`，主文件：
+
+```text
+Debug/acdc_halfbridge_f407.elf
+Release/acdc_halfbridge_f407.elf
+```
+
+## 8. 已知限制
+
+- `Lf=2 mH, Cf=10 uF, Lb=1 mH, Cbus=1000 uF` 仍是模型假设，必须替换成
+  实物值并重跑；
+- 输入电流量程决定 31 V 满载只能“擦线通过”，换传感器或降低输出功率更稳；
+- 小于 0.5 A 的轻载 PF/THD 会明显变差；
+- 当前只用 LED 显示状态，没有恢复旧工程 OLED 菜单；
+- 零母线直接合闸会产生很大的 LC 涌流，软件预充流程不能替代硬件预充；
+- 原板没有分配驱动器的 `EN_RECT`/`SD` 使能脚；如果所用驱动板需要使能，
+  必须把该脚接成上电即安全关闭、只有 MCU 明确拉高后才允许驱动的逻辑；
+- 若驱动器的 HI/LI 有效电平不是“高有效”，必须在 GPIO/驱动侧反相，并重新
+  验证 MOE、死区和 Break。

@@ -1,0 +1,43 @@
+# 本仓库的统一版式（作者定稿风格）。
+#
+# 用法：clang-format -i <文件…>，或让 IDE 保存时自动格式化。
+# 说明：本文件只管**版式**（大括号位置、缩进、换行、单行语句）；
+#       命名规则、注释内容与单位约定见 docs/STYLE.md。
+#
+# 风格要点：大括号跟随语句、4 空格缩进、单语句分支可省大括号并压成一行、
+#           不强制换行但超过 120 列会折行、注释原样保留不重排。
+#
+# 两个大括号选项是一对安全网（改前先读懂）：
+#   RemoveBracesLLVM —— 单语句分支去掉大括号，向作者风格看齐；
+#   InsertBraces     —— 若某个 if/while 后继**不止一句**（缺大括号会改变
+#                       语义），自动补上大括号。当前仓库没有这种写法，
+#                       所以它是零改动；留着是防止以后手滑改出 bug。
+---
+Language:        Cpp
+BasedOnStyle:    LLVM
+
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+ColumnLimit:     120
+
+BreakBeforeBraces:                          Attach
+AllowShortIfStatementsOnASingleLine:         AllIfsAndElse
+AllowShortLoopsOnASingleLine:                true
+AllowShortFunctionsOnASingleLine:            Inline
+AllowShortBlocksOnASingleLine:               Never
+AllowShortCaseLabelsOnASingleLine:           false
+RemoveBracesLLVM:                            true
+InsertBraces:                                true
+
+IndentCaseLabels:        false
+IndentPPDirectives:      None
+ReflowComments:          false
+AlignTrailingComments:   true
+SortIncludes:            Never
+
+SpaceBeforeParens:       ControlStatements
+PointerAlignment:        Right
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep:     2
+SpaceAfterCStyleCast:    false
