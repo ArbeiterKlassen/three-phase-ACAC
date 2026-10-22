@@ -120,7 +120,8 @@ stm32cubeidec.exe --launcher.suppressErrors -nosplash \
 powershell -ExecutionPolicy Bypass -File .\host_tests\run_tests.ps1
 ```
 
-两个闭环仿真把**真实的控制器源码**接到简化被控对象上，用于验证开环/闭环行为：
+两个原始闭环仿真把**真实的控制器源码**接到简化被控对象上；另有一个单半桥
+ACDC 平均模型，用于验证“一个半桥 + 四只肖特基”的降级拓扑：
 
 ```powershell
 # ACDC：单相全桥 + 升压电感 + 母线电容
@@ -130,9 +131,14 @@ gcc -std=c11 -I App\Inc host_tests\sim_rectifier.c App\Src\*.c -lm -o sim_rect.e
 # DCAC：三相全桥 + LC 滤波器 + 星形负载
 gcc -std=c11 -I App\Inc host_tests\sim_inverter.c App\Src\*.c -lm -o sim_inv.exe
 .\sim_inv.exe 1        # 1 = PC4 接通，0 = PC4 悬空
+
+# ACDC 降级拓扑：二极管全桥 + Lf/Cf + 单半桥 Boost（一键扫描）
+powershell -ExecutionPolicy Bypass -File .\host_tests\run_acdc_halfbridge_sim.ps1
 ```
 
 被控对象参数（电感、电容、负载）是**假设值**，拿到原理图后应替换重跑。
+单半桥 ACDC 的结论、限制和波形见
+[`docs/ACDC_HALFBRIDGE_SIM.md`](docs/ACDC_HALFBRIDGE_SIM.md)。
 
 ---
 

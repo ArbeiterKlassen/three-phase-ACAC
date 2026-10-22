@@ -31,3 +31,17 @@ Studio C/C++ 工具集。测试覆盖：
 
 双 ADC `CDR` 帧固定为四个 32 位字：每字低 16 位是 ADC1，高 16 位是
 ADC2；rank 依次为 `Iin/Vin`、`Ib/Ia`、`Vab/Vbc`、`Vdc/Vin诊断`。
+
+## 单半桥 ACDC 降级拓扑
+
+`sim_acdc_halfbridge.c` 不是旧全桥 PFC 的回归用例，而是只剩一个半桥时
+“四只肖特基 + Lf/Cf + Boost + Cbus”的独立平均模型。它包含 400 点输入
+RMS、100 Hz 母线陷波、软启动、器件压降和 LC 动态，默认参数必须按实物
+电感/电容替换。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\host_tests\run_acdc_halfbridge_sim.ps1
+```
+
+脚本会生成 `docs/acdc_halfbridge_sweep.csv`、扫描图和波形图。完整说明：
+[`docs/ACDC_HALFBRIDGE_SIM.md`](../docs/ACDC_HALFBRIDGE_SIM.md)。

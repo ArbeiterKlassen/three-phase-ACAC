@@ -10,6 +10,8 @@ Release/
 *.hex
 *.autosave
 *.su
+__pycache__/
+*.pyc
 
 # CubeIDE / Eclipse 工作区状态
 .metadata/

@@ -35,7 +35,10 @@ gcc -std=c11 -I App\Inc host_tests\sim_rectifier.c App\Src\*.c -lm -o sim_rect.e
 gcc -std=c11 -I App\Inc host_tests\sim_inverter.c App\Src\*.c -lm -o sim_inv.exe
 .\sim_inv.exe 1        # 参数 1 = PC4 接通，0 = PC4 悬空
 
-# ④ 编译固件（CubeIDE）
+# ④ 单半桥 ACDC：二极管全桥 + LC + 单半桥 Boost（扫描 + 波形）
+powershell -ExecutionPolicy Bypass -File .\host_tests\run_acdc_halfbridge_sim.ps1
+
+# ⑤ 编译固件（CubeIDE）
 #    导入本目录 → Debug → Build；或命令行见 README 第 10.2 节
 ```
 
