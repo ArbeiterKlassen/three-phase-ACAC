@@ -21,7 +21,7 @@ typedef struct {
  * 解一帧 ADC DMA：
  *   word0 = Iin / Vin
  *   word1 = 旧 Ib / Ia，本项目不用
- *   word2 = Vcf(PC2) / 旧 Vbc，本项目只用低 16 位
+ *   word2 = Vcf(PC2，1.9k/48.4k 分压) / 旧 Vbc，本项目只用低 16 位
  *   word3 = Vdc / Vin 诊断，本项目只用低 16 位
  * 失败时清空 out，调用者不得把旧值当作新测量。
  */

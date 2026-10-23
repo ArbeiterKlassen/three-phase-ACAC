@@ -12,8 +12,12 @@
  *   PC5 ADC2_IN15 = Vin，TV ±100 V 量程；
  *   PC4 ADC1_IN14 = Vdc，单极性 0~67.9 V。
  *
- * Vcf 需要把原 PC2（ADC1_IN12，原 Vab 电压采样）改接到二极管桥后的
- * Cf 分压点。默认复用同型 TV 的零点和增益；换成不同分压网络时必须重标。
+ * Vcf 只使用原 PC2（ADC1_IN12，原 Vab 电压采样）这一路，前端改为
+ * 高压端 48.4 kΩ、ADC 节点对地 1.9 kΩ 的电阻分压：
+ *   ratio = 1.9 / (1.9 + 48.4) = 0.037773...
+ *   gain  = (3.3 / 4095) / ratio = 0.021334 V/码
+ * ADC 引脚达到 3.3 V 时对应约 87.36 V；为避免 ADC 两端非线性，窗口取
+ * 0..4031 码，对应约 0..86.0 V。
  */
 const AcdcCalibration g_acdc_cal_iin = {
     .offset_count = 2084.7273f,
@@ -30,9 +34,9 @@ const AcdcCalibration g_acdc_cal_vin = {
 };
 
 const AcdcCalibration g_acdc_cal_vcf = {
-    .offset_count = 2109.5455f,
-    .gain = 0.051657744f,
-    .raw_min = 64U,
+    .offset_count = 0.0f,
+    .gain = ACDC_VCF_GAIN_V_PER_CODE,
+    .raw_min = 0U,
     .raw_max = 4031U,
 };
 

@@ -68,6 +68,21 @@ static void TestMeasurement(void) {
     CHECK(m.iin_overrange);
 }
 
+static void TestVcfDividerCalibration(void) {
+    uint32_t frame[ACDC_ADC_RANK_COUNT];
+    AcdcMeasurement m;
+    const float full_scale_v = g_acdc_cal_vcf.gain * ACDC_ADC_FULL_CODE;
+
+    CHECK(fabsf(ACDC_VCF_DIVIDER_RATIO - 0.03777336f) < 1.0e-6f);
+    CHECK(fabsf(g_acdc_cal_vcf.gain - 0.0213341f) < 1.0e-6f);
+    CHECK(fabsf(full_scale_v - 87.363f) < 0.05f);
+    CHECK(g_acdc_cal_vcf.offset_count == 0.0f);
+
+    MakeFrame(frame, 1.0f, 36.0f, 80.0f, 60.0f);
+    CHECK(AcdcMeasurement_Convert(frame, &m));
+    CHECK(fabsf(m.vcf_v - 80.0f) < 0.06f);
+}
+
 static void TestControlWarmupAndRun(void) {
     AcdcControl control;
     AcdcControlConfig cfg = TestConfig();
@@ -186,6 +201,7 @@ static void TestVoltageProtection(void) {
 
 int main(void) {
     TestMeasurement();
+    TestVcfDividerCalibration();
     TestControlWarmupAndRun();
     TestApplicationStartAndProtection();
     TestUndervoltageTripsWithoutControlFault();

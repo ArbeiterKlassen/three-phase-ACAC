@@ -40,6 +40,14 @@
 #define ACDC_DUTY_MIN (0.05f)
 #define ACDC_DUTY_MAX (0.95f)
 
+/* ── Vcf 电阻分压（仅使用 PC2 一路）───────────────────────────────── */
+#define ACDC_VCF_DIVIDER_LOW_OHM (1900.0f)   // ADC 节点对地电阻
+#define ACDC_VCF_DIVIDER_HIGH_OHM (48400.0f) // 高压端到 ADC 节点电阻
+#define ACDC_ADC_REFERENCE_V (3.3f)
+#define ACDC_ADC_FULL_CODE (4095.0f)
+#define ACDC_VCF_DIVIDER_RATIO (ACDC_VCF_DIVIDER_LOW_OHM / (ACDC_VCF_DIVIDER_LOW_OHM + ACDC_VCF_DIVIDER_HIGH_OHM))
+#define ACDC_VCF_GAIN_V_PER_CODE ((ACDC_ADC_REFERENCE_V / ACDC_ADC_FULL_CODE) / ACDC_VCF_DIVIDER_RATIO)
+
 /* ── 控制器增益（与 host_tests/sim_input_current.c 一致） ─────────── */
 #define ACDC_BUS_PI_KP_A_PER_V (1.0f)
 #define ACDC_BUS_PI_KI_A_PER_V_S (1.0f)

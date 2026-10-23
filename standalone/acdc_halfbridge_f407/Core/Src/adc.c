@@ -283,7 +283,7 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 
     /**ADC1 GPIO Configuration
     PC0     ------> ADC1_IN10
-    PC2     ------> ADC1_IN12 (Vcf)
+    PC2     ------> ADC1_IN12 (Vcf, 1.9k/48.4k divider)
     PA5     ------> ADC1_IN5
     PC4     ------> ADC1_IN14
     */
