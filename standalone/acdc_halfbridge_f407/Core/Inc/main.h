@@ -63,8 +63,8 @@ void Error_Handler(void);
 #define ADC_IB_GPIO_Port GPIOC
 #define ADC_IA_Pin GPIO_PIN_1
 #define ADC_IA_GPIO_Port GPIOC
-#define ADC_VCF_Pin GPIO_PIN_2
-#define ADC_VCF_GPIO_Port GPIOC
+#define ADC_VAB_Pin GPIO_PIN_2
+#define ADC_VAB_GPIO_Port GPIOC
 #define ADC_VBC_Pin GPIO_PIN_3
 #define ADC_VBC_GPIO_Port GPIOC
 #define ADC_IIN_Pin GPIO_PIN_5
@@ -73,8 +73,8 @@ void Error_Handler(void);
 #define RECT_BKIN_GPIO_Port GPIOA
 #define ADC_VDC_Pin GPIO_PIN_4
 #define ADC_VDC_GPIO_Port GPIOC
-#define ADC_VIN_Pin GPIO_PIN_5
-#define ADC_VIN_GPIO_Port GPIOC
+#define ADC_VCF_Pin GPIO_PIN_5
+#define ADC_VCF_GPIO_Port GPIOC
 #define INV_BKIN_Pin GPIO_PIN_15
 #define INV_BKIN_GPIO_Port GPIOE
 #define SPI_IMU_CS_Pin GPIO_PIN_12

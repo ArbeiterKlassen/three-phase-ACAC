@@ -79,37 +79,37 @@ static float AcdcNotch_Step(AcdcNotch *notch, float input) {
 }
 
 static void AcdcControl_InvalidateRms(AcdcControl *control) {
-    control->vin_square_sum = 0.0f;
-    control->vin_square_index = 0U;
-    control->vin_square_count = 0U;
-    control->vin_rms_v = 0.0f;
+    control->vcf_square_sum = 0.0f;
+    control->vcf_square_index = 0U;
+    control->vcf_square_count = 0U;
+    control->vcf_rms_v = 0.0f;
     control->rms_valid = false;
 }
 
 /*
- * 一个工频周期的滑动 RMS。窗口固定 400 点；如果改了 20 kHz 或 50 Hz，
+ * 一个工频周期的 Vcf 滑动 RMS。窗口固定 400 点；如果改了 20 kHz 或 50 Hz，
  * Init 会因窗口长度不匹配而拒绝工作，不能只改一个频率。
  */
-static void AcdcControl_UpdateRms(AcdcControl *control, float vin) {
-    const float vin_square = vin * vin;
+static void AcdcControl_UpdateRms(AcdcControl *control, float vcf) {
+    const float vcf_square = vcf * vcf;
     float oldest = 0.0f;
 
-    if (!isfinite(vin_square)) {
+    if (!isfinite(vcf_square)) {
         AcdcControl_InvalidateRms(control);
         return;
     }
-    if (control->vin_square_count >= ACDC_RMS_WINDOW_SAMPLES)
-        oldest = control->vin_square_window[control->vin_square_index];
-    else control->vin_square_count++;
+    if (control->vcf_square_count >= ACDC_RMS_WINDOW_SAMPLES)
+        oldest = control->vcf_square_window[control->vcf_square_index];
+    else control->vcf_square_count++;
 
-    control->vin_square_window[control->vin_square_index] = vin_square;
-    control->vin_square_sum += vin_square - oldest;
-    control->vin_square_index++;
-    if (control->vin_square_index >= ACDC_RMS_WINDOW_SAMPLES) control->vin_square_index = 0U;
+    control->vcf_square_window[control->vcf_square_index] = vcf_square;
+    control->vcf_square_sum += vcf_square - oldest;
+    control->vcf_square_index++;
+    if (control->vcf_square_index >= ACDC_RMS_WINDOW_SAMPLES) control->vcf_square_index = 0U;
 
-    if (control->vin_square_count >= ACDC_RMS_WINDOW_SAMPLES) {
-        control->vin_rms_v = sqrtf(fmaxf(control->vin_square_sum / (float)ACDC_RMS_WINDOW_SAMPLES, 0.0f));
-        control->rms_valid = isfinite(control->vin_rms_v) && (control->vin_rms_v > 0.1f);
+    if (control->vcf_square_count >= ACDC_RMS_WINDOW_SAMPLES) {
+        control->vcf_rms_v = sqrtf(fmaxf(control->vcf_square_sum / (float)ACDC_RMS_WINDOW_SAMPLES, 0.0f));
+        control->rms_valid = isfinite(control->vcf_rms_v) && (control->vcf_rms_v > 0.1f);
     }
 }
 
@@ -128,11 +128,11 @@ bool AcdcControl_Init(AcdcControl *control, const AcdcControlConfig *cfg) {
     const float cycles = ACDC_SAMPLE_TIME_S * ACDC_LINE_FREQ_HZ * (float)ACDC_RMS_WINDOW_SAMPLES;
 
     if ((control == NULL) || (cfg == NULL) || !isfinite(cfg->vbus_target_v) || !isfinite(cfg->vbus_min_v) ||
-        !isfinite(cfg->vbus_max_v) || !isfinite(cfg->vin_rms_min_v) || !isfinite(cfg->vin_abs_max_v) ||
+        !isfinite(cfg->vbus_max_v) || !isfinite(cfg->vcf_rms_min_v) || !isfinite(cfg->vcf_abs_max_v) ||
         !isfinite(cfg->iin_abs_max_a) || !isfinite(cfg->iin_command_max_a) || !isfinite(cfg->vbus_slew_v_per_s) ||
         !isfinite(cfg->duty_min) || !isfinite(cfg->duty_max) || (cfg->vbus_max_v <= cfg->vbus_min_v) ||
         (cfg->vbus_target_v <= cfg->vbus_min_v) || (cfg->vbus_target_v >= cfg->vbus_max_v) ||
-        !(cfg->vin_rms_min_v > 0.0f) || !(cfg->vin_abs_max_v > cfg->vbus_target_v) || !(cfg->iin_abs_max_a > 0.0f) ||
+        !(cfg->vcf_rms_min_v > 0.0f) || !(cfg->vcf_abs_max_v > cfg->vbus_target_v) || !(cfg->iin_abs_max_a > 0.0f) ||
         !(cfg->iin_command_max_a > 0.0f) || !(cfg->vbus_slew_v_per_s > 0.0f) || (cfg->duty_min < 0.0f) ||
         (cfg->duty_max > 1.0f) || (cfg->duty_min >= cfg->duty_max) || (fabsf(cycles - 1.0f) > 1.0e-4f)) {
         return false;
@@ -177,16 +177,16 @@ bool AcdcControl_Step(AcdcControl *control, const AcdcMeasurement *measurement, 
     memset(out, 0, sizeof(*out));
     out->low_side_duty = 0.5f;
     if ((measurement == NULL) || !measurement->valid || !isfinite(measurement->iin_a) ||
-        !isfinite(measurement->vin_v) || !isfinite(measurement->vcf_v) || !isfinite(measurement->vdc_v)) {
+        !isfinite(measurement->vcf_v) || !isfinite(measurement->vdc_v)) {
         AcdcControl_InvalidateRms(control);
         AcdcControl_ResetDynamics(control);
         return false;
     }
 
-    /* 即使门极还没开，也持续填满 Vin RMS 窗口，缩短 READY 等待时间。 */
-    AcdcControl_UpdateRms(control, measurement->vin_v);
+    /* 即使门极还没开，也持续填满 Vcf RMS 窗口，缩短 READY 等待时间。 */
+    AcdcControl_UpdateRms(control, measurement->vcf_v);
     control->vbus_filtered_v = measurement->vdc_v;
-    out->input_voltage_rms_v = control->vin_rms_v;
+    out->vcf_rms_v = control->vcf_rms_v;
 
     if (!enabled) {
         AcdcControl_ResetDynamics(control);
@@ -197,9 +197,9 @@ bool AcdcControl_Step(AcdcControl *control, const AcdcMeasurement *measurement, 
         return true;
     }
 
-    if (!control->rms_valid || (control->vin_rms_v < control->cfg.vin_rms_min_v) ||
+    if (!control->rms_valid || (control->vcf_rms_v < control->cfg.vcf_rms_min_v) ||
         (measurement->vdc_v < control->cfg.vbus_min_v) || (measurement->vdc_v > control->cfg.vbus_max_v) ||
-        (fabsf(measurement->vin_v) > control->cfg.vin_abs_max_v) ||
+        (fabsf(measurement->vcf_v) > control->cfg.vcf_abs_max_v) ||
         (fabsf(measurement->iin_a) > control->cfg.iin_abs_max_a)) {
         AcdcControl_ResetDynamics(control);
         return false;
@@ -232,7 +232,7 @@ bool AcdcControl_Step(AcdcControl *control, const AcdcMeasurement *measurement, 
     }
 
     control->current_reference_a =
-        control->current_rms_command_a * fabsf(measurement->vin_v) / fmaxf(control->vin_rms_v, 1.0e-3f);
+        control->current_rms_command_a * fmaxf(measurement->vcf_v, 0.0f) / fmaxf(control->vcf_rms_v, 1.0e-3f);
     current_error = control->current_reference_a - fabsf(measurement->iin_a);
 
     /*

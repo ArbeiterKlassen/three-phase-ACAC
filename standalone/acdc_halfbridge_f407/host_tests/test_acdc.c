@@ -28,11 +28,11 @@ static uint32_t Pair(uint16_t adc1, uint16_t adc2) {
     return ((uint32_t)adc1 & 0xFFFFU) | (((uint32_t)adc2 & 0xFFFFU) << 16U);
 }
 
-static void MakeFrame(uint32_t frame[ACDC_ADC_RANK_COUNT], float iin, float vin, float vcf, float vdc) {
-    frame[0] = Pair(RawFromPhysical(&g_acdc_cal_iin, iin), RawFromPhysical(&g_acdc_cal_vin, vin));
+static void MakeFrame(uint32_t frame[ACDC_ADC_RANK_COUNT], float iin, float vcf, float vdc) {
+    frame[0] = Pair(RawFromPhysical(&g_acdc_cal_iin, iin), RawFromPhysical(&g_acdc_cal_vcf, vcf));
     frame[1] = 0U;
-    frame[2] = Pair(RawFromPhysical(&g_acdc_cal_vcf, vcf), 0U);
-    frame[3] = Pair(RawFromPhysical(&g_acdc_cal_vdc, vdc), RawFromPhysical(&g_acdc_cal_vin, vin));
+    frame[2] = 0U; // PC2/Vab must remain untouched for the final ACAC project.
+    frame[3] = Pair(RawFromPhysical(&g_acdc_cal_vdc, vdc), RawFromPhysical(&g_acdc_cal_vcf, vcf));
 }
 
 static AcdcControlConfig TestConfig(void) {
@@ -40,8 +40,8 @@ static AcdcControlConfig TestConfig(void) {
         .vbus_target_v = ACDC_DC_VOLTAGE_TARGET_V,
         .vbus_min_v = ACDC_DC_RUN_MIN_V,
         .vbus_max_v = ACDC_DC_MAX_V,
-        .vin_rms_min_v = ACDC_VIN_RMS_MIN_V,
-        .vin_abs_max_v = ACDC_VIN_INSTANT_MAX_V,
+        .vcf_rms_min_v = ACDC_VCF_RMS_MIN_V,
+        .vcf_abs_max_v = ACDC_VCF_INSTANT_MAX_V,
         .iin_abs_max_a = ACDC_IIN_ABS_MAX_A,
         .iin_command_max_a = ACDC_IIN_COMMAND_MAX_A,
         .vbus_slew_v_per_s = ACDC_DC_REFERENCE_SLEW_V_PER_S,
@@ -54,11 +54,10 @@ static void TestMeasurement(void) {
     uint32_t frame[ACDC_ADC_RANK_COUNT];
     AcdcMeasurement m;
 
-    MakeFrame(frame, 2.5f, 36.0f, 24.0f, 55.0f);
+    MakeFrame(frame, 2.5f, 24.0f, 55.0f);
     CHECK(AcdcMeasurement_Convert(frame, &m));
     CHECK(m.valid);
     CHECK(fabsf(m.iin_a - 2.5f) < 0.01f);
-    CHECK(fabsf(m.vin_v - 36.0f) < 0.12f);
     CHECK(fabsf(m.vcf_v - 24.0f) < 0.12f);
     CHECK(fabsf(m.vdc_v - 55.0f) < 0.04f);
 
@@ -78,7 +77,7 @@ static void TestVcfDividerCalibration(void) {
     CHECK(fabsf(full_scale_v - 87.363f) < 0.05f);
     CHECK(g_acdc_cal_vcf.offset_count == 0.0f);
 
-    MakeFrame(frame, 1.0f, 36.0f, 80.0f, 60.0f);
+    MakeFrame(frame, 1.0f, 80.0f, 60.0f);
     CHECK(AcdcMeasurement_Convert(frame, &m));
     CHECK(fabsf(m.vcf_v - 80.0f) < 0.06f);
 }
@@ -89,7 +88,6 @@ static void TestControlWarmupAndRun(void) {
     AcdcControlOutput out;
     AcdcMeasurement m = {
         .iin_a = 2.0f,
-        .vin_v = 36.0f,
         .vcf_v = 20.0f,
         .vdc_v = 50.0f,
         .valid = true,
@@ -102,7 +100,7 @@ static void TestControlWarmupAndRun(void) {
         CHECK(!out.gates_enabled);
     }
     CHECK(AcdcControl_Step(&control, &m, false, &out));
-    CHECK(fabsf(out.input_voltage_rms_v - 36.0f) < 0.25f);
+    CHECK(fabsf(out.vcf_rms_v - 20.0f) < 0.25f);
 
     CHECK(AcdcControl_Step(&control, &m, true, &out));
     CHECK(out.valid);
@@ -128,7 +126,7 @@ static void TestApplicationStartAndProtection(void) {
     CHECK(app.start_requested);
     CHECK(app.state == ACDC_STATE_OFF);
 
-    MakeFrame(frame, 1.0f, 36.0f, 25.0f, 50.0f);
+    MakeFrame(frame, 1.0f, 25.0f, 50.0f);
     for (i = 0U; i < (ACDC_RMS_WINDOW_SAMPLES + ACDC_PRECHARGE_CONFIRM_SAMPLES + 10U); i++)
         AcdcApp_FastStep(&app, frame, &out);
     CHECK(app.state == ACDC_STATE_RUN);
@@ -138,14 +136,14 @@ static void TestApplicationStartAndProtection(void) {
     CHECK(out.low_side_duty <= ACDC_DUTY_MAX);
 
     /* 5.63 A 仍在 TA 正向可测量程内，因此应先判过流而不是量程无效。 */
-    MakeFrame(frame, ACDC_IIN_ABS_MAX_A + 0.03f, 36.0f, 20.0f, 55.0f);
+    MakeFrame(frame, ACDC_IIN_ABS_MAX_A + 0.03f, 20.0f, 55.0f);
     AcdcApp_FastStep(&app, frame, &out);
     CHECK(app.state == ACDC_STATE_FAULT);
     CHECK((app.faults & ACDC_FAULT_INPUT_OVERCURRENT) != 0U);
     CHECK(!out.gates_enabled);
 
     /* 原始码越上限也必须报过流，而不是报“测量故障”。 */
-    frame[0] = Pair(4095U, RawFromPhysical(&g_acdc_cal_vin, 36.0f));
+    frame[0] = Pair(4095U, RawFromPhysical(&g_acdc_cal_vcf, 36.0f));
     AcdcApp_FastStep(&app, frame, &out);
     CHECK((app.faults & ACDC_FAULT_INPUT_OVERCURRENT) != 0U);
 
@@ -164,12 +162,12 @@ static void TestUndervoltageTripsWithoutControlFault(void) {
 
     AcdcApp_Init(&app);
     AcdcApp_ToggleRequest(&app);
-    MakeFrame(frame, 1.0f, 36.0f, 25.0f, 50.0f);
+    MakeFrame(frame, 1.0f, 25.0f, 50.0f);
     for (i = 0U; i < (ACDC_RMS_WINDOW_SAMPLES + ACDC_PRECHARGE_CONFIRM_SAMPLES + 10U); i++)
         AcdcApp_FastStep(&app, frame, &out);
     CHECK(app.state == ACDC_STATE_RUN);
 
-    MakeFrame(frame, 3.0f, 36.0f, 20.0f, 29.0f);
+    MakeFrame(frame, 3.0f, 20.0f, 29.0f);
     for (i = 0U; i < (ACDC_UNDERVOLTAGE_CONFIRM_SAMPLES - 1U); i++) {
         AcdcApp_FastStep(&app, frame, &out);
         CHECK(!out.gates_enabled);
@@ -187,13 +185,13 @@ static void TestVoltageProtection(void) {
     uint32_t frame[ACDC_ADC_RANK_COUNT];
 
     AcdcApp_Init(&app);
-    MakeFrame(frame, 1.0f, 66.0f, 20.0f, 50.0f);
+    MakeFrame(frame, 1.0f, 66.0f, 50.0f);
     AcdcApp_FastStep(&app, frame, &out);
     CHECK((app.faults & ACDC_FAULT_INPUT_OVERVOLTAGE) != 0U);
     CHECK(!out.gates_enabled);
 
     AcdcApp_Init(&app);
-    MakeFrame(frame, 1.0f, 36.0f, 20.0f, 67.0f);
+    MakeFrame(frame, 1.0f, 20.0f, 67.0f);
     AcdcApp_FastStep(&app, frame, &out);
     CHECK((app.faults & ACDC_FAULT_BUS_OVERVOLTAGE) != 0U);
     CHECK(!out.gates_enabled);

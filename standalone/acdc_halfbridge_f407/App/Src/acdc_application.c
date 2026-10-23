@@ -26,7 +26,7 @@ static bool AcdcApp_MeasurementProtection(AcdcApplication *app, const AcdcMeasur
         AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERCURRENT);
         return false;
     }
-    if (fabsf(measurement->vin_v) > ACDC_VIN_INSTANT_MAX_V) {
+    if (fabsf(measurement->vcf_v) > ACDC_VCF_INSTANT_MAX_V) {
         AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERVOLTAGE);
         return false;
     }
@@ -67,8 +67,8 @@ void AcdcApp_Init(AcdcApplication *app) {
         .vbus_target_v = ACDC_DC_VOLTAGE_TARGET_V,
         .vbus_min_v = ACDC_DC_RUN_MIN_V,
         .vbus_max_v = ACDC_DC_MAX_V,
-        .vin_rms_min_v = ACDC_VIN_RMS_MIN_V,
-        .vin_abs_max_v = ACDC_VIN_INSTANT_MAX_V,
+        .vcf_rms_min_v = ACDC_VCF_RMS_MIN_V,
+        .vcf_abs_max_v = ACDC_VCF_INSTANT_MAX_V,
         .iin_abs_max_a = ACDC_IIN_ABS_MAX_A,
         .iin_command_max_a = ACDC_IIN_COMMAND_MAX_A,
         .vbus_slew_v_per_s = ACDC_DC_REFERENCE_SLEW_V_PER_S,
@@ -105,7 +105,7 @@ void AcdcApp_FastStep(AcdcApplication *app, const uint32_t frame[ACDC_ADC_RANK_C
          */
         if (measurement.iin_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERCURRENT);
         else if (measurement.vdc_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_BUS_OVERVOLTAGE);
-        else if (measurement.vin_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERVOLTAGE);
+        else if (measurement.vcf_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERVOLTAGE);
         else if ((app->state == ACDC_STATE_RUN) || (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES))
             AcdcApp_LatchFault(app, ACDC_FAULT_MEASUREMENT);
         (void)AcdcControl_Step(&app->control, &measurement, false, &local);
@@ -140,7 +140,7 @@ void AcdcApp_FastStep(AcdcApplication *app, const uint32_t frame[ACDC_ADC_RANK_C
 
         app->state = ACDC_STATE_WAIT;
         (void)AcdcControl_Step(&app->control, &measurement, false, &local);
-        ready = (local.input_voltage_rms_v >= ACDC_VIN_RMS_MIN_V) &&
+        ready = (local.vcf_rms_v >= ACDC_VCF_RMS_MIN_V) &&
                 (measurement.vdc_v >= fmaxf(ACDC_DC_PRECHARGE_MIN_V, ACDC_DC_RUN_MIN_V)) &&
                 (measurement.vdc_v <= ACDC_DC_START_MAX_V);
         if (ready) {
@@ -207,11 +207,10 @@ void AcdcApp_GetSnapshot(const AcdcApplication *app, AcdcSnapshot *snapshot) {
     snapshot->state = app->state;
     snapshot->faults = app->faults;
     snapshot->iin_a = app->measurement.iin_a;
-    snapshot->vin_v = app->measurement.vin_v;
     snapshot->vcf_v = app->measurement.vcf_v;
     snapshot->vdc_v = app->measurement.vdc_v;
     snapshot->duty_low_side = app->control_output.low_side_duty;
     snapshot->current_reference_a = app->control_output.current_reference_a;
-    snapshot->input_voltage_rms_v = app->control_output.input_voltage_rms_v;
+    snapshot->vcf_rms_v = app->control_output.vcf_rms_v;
     snapshot->gates_enabled = app->control_output.gates_enabled;
 }

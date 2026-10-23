@@ -142,8 +142,9 @@ powershell -ExecutionPolicy Bypass -File .\host_tests\run_acdc_halfbridge_sim.ps
 
 对应的可直接编译 STM32 工程在
 [`standalone/acdc_halfbridge_f407`](standalone/acdc_halfbridge_f407)：
-默认安全锁关闭门极，使用现有 `Vin/Iin/Vcf/Vdc` 四路采样，A/B 半桥可选，
-并已完成 CubeIDE Debug/Release 构建。
+默认安全锁关闭门极，整流侧只用 `Vcf=PC5` 一路电压采样，另有
+`Iin=PA5`、`Vdc=PC4`；原 PC0..PC3 四路 ACAC 输出采样保持不动。A/B
+半桥可选，并已完成 CubeIDE Debug/Release 构建。
 
 ---
 

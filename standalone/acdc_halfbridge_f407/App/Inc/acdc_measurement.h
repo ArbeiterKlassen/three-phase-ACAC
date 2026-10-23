@@ -8,21 +8,20 @@
 
 typedef struct {
     float iin_a; // 交流输入电流，有符号 [A]
-    float vin_v; // 交流输入电压 [V]
-    float vcf_v; // 二极管桥后 Cf 电压 [V]
+    float vcf_v; // 二极管桥后 Cf 电压，也是唯一整流电压反馈 [V]
     float vdc_v; // 母线电压 [V]
-    bool valid;  // 四路均在标定窗口且为有限值
+    bool valid;  // 所需三路均在标定窗口且为有限值
     bool iin_overrange;
-    bool vin_overrange;
+    bool vcf_overrange;
     bool vdc_overrange;
 } AcdcMeasurement;
 
 /*
  * 解一帧 ADC DMA：
- *   word0 = Iin / Vin
+ *   word0 = Iin / Vcf(PC5，1.9k/48.4k 分压)
  *   word1 = 旧 Ib / Ia，本项目不用
- *   word2 = Vcf(PC2，1.9k/48.4k 分压) / 旧 Vbc，本项目只用低 16 位
- *   word3 = Vdc / Vin 诊断，本项目只用低 16 位
+ *   word2 = 原 Vab(PC2) / 旧 Vbc，留给最终 ACAC 工程，本 ACDC 控制不用
+ *   word3 = Vdc / Vcf 诊断，本项目只用低 16 位
  * 失败时清空 out，调用者不得把旧值当作新测量。
  */
 bool AcdcMeasurement_Convert(const uint32_t frame[ACDC_ADC_RANK_COUNT], AcdcMeasurement *out);

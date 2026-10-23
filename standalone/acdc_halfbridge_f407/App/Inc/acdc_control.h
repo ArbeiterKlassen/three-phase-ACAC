@@ -29,8 +29,8 @@ typedef struct {
     float vbus_target_v;
     float vbus_min_v;
     float vbus_max_v;
-    float vin_rms_min_v;
-    float vin_abs_max_v;
+    float vcf_rms_min_v;
+    float vcf_abs_max_v;
     float iin_abs_max_a;
     float iin_command_max_a;
     float vbus_slew_v_per_s;
@@ -42,12 +42,12 @@ typedef struct {
     AcdcControlConfig cfg;
     AcdcPi bus_pi;
     AcdcNotch bus_notch;
-    float vin_square_window[ACDC_RMS_WINDOW_SAMPLES];
-    float vin_square_sum;
-    uint32_t vin_square_index;
-    uint32_t vin_square_count;
+    float vcf_square_window[ACDC_RMS_WINDOW_SAMPLES];
+    float vcf_square_sum;
+    uint32_t vcf_square_index;
+    uint32_t vcf_square_count;
     uint32_t outer_count;
-    float vin_rms_v;
+    float vcf_rms_v;
     float vbus_filtered_v;
     float voltage_reference_v;
     float current_rms_command_a;
@@ -62,7 +62,7 @@ typedef struct {
     float current_reference_a; // 当前输入电流幅值指令 [A]
     float current_rms_cmd_a;   // 母线环输出 [A RMS 语义]
     float voltage_reference_v; // 当前软启动参考 [V]
-    float input_voltage_rms_v; // 一个工频周期 RMS [V]
+    float vcf_rms_v;           // 一个工频周期 Vcf RMS [V]
     float vbus_filtered_v;     // 100 Hz 陷波后的母线 [V]
     bool gates_enabled;        // 仅 true 时 board runtime 允许开 TIM8 门极
     bool valid;                // 本拍控制结果可用于硬件

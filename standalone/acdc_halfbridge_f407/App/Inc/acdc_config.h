@@ -26,8 +26,8 @@
 #define ACDC_DC_RUN_MIN_V (30.0f)
 #define ACDC_DC_MAX_V (66.0f)
 #define ACDC_DC_START_MAX_V (64.0f)
-#define ACDC_VIN_RMS_MIN_V (10.0f)
-#define ACDC_VIN_INSTANT_MAX_V (65.0f)
+#define ACDC_VCF_RMS_MIN_V (10.0f)
+#define ACDC_VCF_INSTANT_MAX_V (65.0f)
 #define ACDC_IIN_ABS_MAX_A (5.6f)
 #define ACDC_IIN_COMMAND_MAX_A (5.5f)
 #define ACDC_DC_REFERENCE_SLEW_V_PER_S (60.0f)
@@ -40,7 +40,7 @@
 #define ACDC_DUTY_MIN (0.05f)
 #define ACDC_DUTY_MAX (0.95f)
 
-/* ── Vcf 电阻分压（仅使用 PC2 一路）───────────────────────────────── */
+/* ── Vcf 电阻分压（仅使用 PC5 一路）───────────────────────────────── */
 #define ACDC_VCF_DIVIDER_LOW_OHM (1900.0f)   // ADC 节点对地电阻
 #define ACDC_VCF_DIVIDER_HIGH_OHM (48400.0f) // 高压端到 ADC 节点电阻
 #define ACDC_ADC_REFERENCE_V (3.3f)
@@ -73,7 +73,7 @@
 /*
  * 默认必须为 0。完成以下项目后才允许改 1：
  *   1) PC7/PB0（或 PA7/PC6）到实际半桥的 HI/LI 对应关系已用表确认；
- *   2) Iin/Vin/Vcf/Vdc 四路零点和比例已实测；
+ *   2) Iin/Vcf/Vdc 三路零点和比例已实测，原有四路采样未改动；
  *   3) 预充电阻/NTC 或限流电源已验证，零母线合闸不会超过器件量程；
  *   4) 1 us 死区和自举高侧供电已用示波器确认。
  */
@@ -94,6 +94,5 @@ typedef struct {
 } AcdcCalibration;
 
 extern const AcdcCalibration g_acdc_cal_iin;
-extern const AcdcCalibration g_acdc_cal_vin;
 extern const AcdcCalibration g_acdc_cal_vcf;
 extern const AcdcCalibration g_acdc_cal_vdc;

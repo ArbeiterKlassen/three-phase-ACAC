@@ -40,12 +40,11 @@ typedef struct {
     AcdcState state;
     uint32_t faults;
     float iin_a;
-    float vin_v;
     float vcf_v;
     float vdc_v;
     float duty_low_side;
     float current_reference_a;
-    float input_voltage_rms_v;
+    float vcf_rms_v;
     bool gates_enabled;
 } AcdcSnapshot;
 

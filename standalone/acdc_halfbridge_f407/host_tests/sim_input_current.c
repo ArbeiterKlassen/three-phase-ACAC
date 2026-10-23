@@ -300,7 +300,7 @@ static void outer_loop(Sim *s, const SimConfig *cfg) {
  * 因此 PI 输出的是“电感上的电压”，而不是直接输出占空比；这样 vCf
  * 和 Vbus 变化时，母线前馈会自动补偿一部分扰动。
  */
-static void inner_loop(Sim *s, const SimConfig *cfg, double v_ac) {
+static void inner_loop(Sim *s, const SimConfig *cfg) {
     const double dt = (double)INNER_DIVIDER * DT_S;
     double error;
     double unsaturated_vl;
@@ -329,11 +329,10 @@ static void inner_loop(Sim *s, const SimConfig *cfg, double v_ac) {
     }
 
     /*
-     * 电流参考必须按交流输入电压定形，而不是按 vCf。vCf 经过 Lf 后已有
-     * 相移和压降；用它做参考会主动复制这段畸变。除以的是 Vac,rms，
-     * 所以 Iamp 仍是电流 RMS 限幅的语义。
+     * 实际 ACAC 板只给整流侧新增一路电压采样，放置于桥后 Vcf。
+     * 因此电流参考必须由 Vcf 自身定形；不能再假设有独立的 |Vac| 采样。
      */
-    s->i_ref = s->i_amp * fabs(v_ac) / fmax(cfg->vac_rms_v, 1.0e-6);
+    s->i_ref = (s->vcf_rms > 1.0e-6) ? s->i_amp * fmax(s->v_cf, 0.0) / s->vcf_rms : 0.0;
     error = s->i_ref - s->i_lf;
     integral_old = s->current_integral;
     s->current_integral += K_I_INPUT_CURRENT * dt * error;
@@ -376,7 +375,7 @@ static void sim_step(Sim *s, const SimConfig *cfg) {
     /* 控制使能前只走 Boost 上管体二极管；20 ms 后闭环接管。 */
     if (!s->control_ready) s->duty = 0.0;
     s->step++;
-    if ((s->step % INNER_DIVIDER) == 0U) inner_loop(s, cfg, v_ac);
+    if ((s->step % INNER_DIVIDER) == 0U) inner_loop(s, cfg);
     if ((s->step % OUTER_DIVIDER) == 0U) {
         if (s->control_ready) {
             s->v_bus_filtered = notch_step(&s->bus_notch, s->v_bus);

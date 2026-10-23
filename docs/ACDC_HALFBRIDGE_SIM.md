@@ -66,6 +66,11 @@
 
 ## 3. 控制结构
 
+> 本文件前半部分是拓扑研究模型，使用理想 `|Vac|` 做电流参考。最终 ACAC
+> 硬件不能在 PC2 上增加 Vcf，只在 PC5 提供一个桥后 Vcf 采样；对应固件和
+> 独立复算模型改为 `Iref = Iamp·Vcf/Vcf,rms`，见
+> `standalone/acdc_halfbridge_f407/host_tests/sim_input_current.c`。
+
 仿真没有使用固定占空比。固定占空比在 Cbus 有电、输入幅值和负载变化时无法
 维持 62 V。
 
