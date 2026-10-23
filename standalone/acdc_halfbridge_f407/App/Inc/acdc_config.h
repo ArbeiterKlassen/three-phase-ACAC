@@ -38,7 +38,10 @@
 #define ACDC_DUTY_MIN (0.05f)
 #define ACDC_DUTY_MAX (0.95f)
 
-/* ── Vcf 电阻分压（仅使用 PC5 一路）───────────────────────────────── */
+/*
+ * Vcf 是单端、从 0 V 向上取样的直流脉动电压，不使用交流中点偏置。
+ * 因此 offset_count=0；负码只可能来自噪声，测量层直接钳到 0 V。
+ */
 #define ACDC_VCF_DIVIDER_LOW_OHM (1900.0f)   // ADC 节点对地电阻
 #define ACDC_VCF_DIVIDER_HIGH_OHM (48400.0f) // 高压端到 ADC 节点电阻
 #define ACDC_ADC_REFERENCE_V (3.3f)

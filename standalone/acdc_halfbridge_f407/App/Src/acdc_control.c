@@ -199,8 +199,7 @@ bool AcdcControl_Step(AcdcControl *control, const AcdcMeasurement *measurement, 
 
     if (!control->rms_valid || (control->vcf_rms_v < control->cfg.vcf_rms_min_v) ||
         (measurement->vdc_v < control->cfg.vbus_min_v) || (measurement->vdc_v > control->cfg.vbus_max_v) ||
-        (fabsf(measurement->vcf_v) > control->cfg.vcf_abs_max_v) ||
-        (fabsf(measurement->iin_a) > control->cfg.iin_abs_max_a)) {
+        (measurement->vcf_v > control->cfg.vcf_abs_max_v) || (fabsf(measurement->iin_a) > control->cfg.iin_abs_max_a)) {
         AcdcControl_ResetDynamics(control);
         return false;
     }

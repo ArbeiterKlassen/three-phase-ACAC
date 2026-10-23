@@ -1,11 +1,14 @@
 #include "acdc_board_runtime.h"
 
+#include <math.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "adc.h"
 #include "acdc_application.h"
 #include "gpio.h"
 #include "main.h"
+#include "oled.h"
 #include "tim.h"
 
 #define ACDC_PWM_PERIOD_COUNTS (4200U)
@@ -22,6 +25,7 @@ static uint32_t s_adc_dma[ACDC_ADC_WORD_COUNT];
 static bool s_key_was_down;
 static uint32_t s_key_change_tick;
 static bool s_key_accepted;
+static uint32_t s_last_display_tick;
 
 static uint32_t AcdcBoard_EnterCritical(void) {
     uint32_t primask = __get_PRIMASK();
@@ -68,6 +72,57 @@ static bool AcdcBoard_ConfigureHalfBridgeChannels(void) {
 
 static bool AcdcBoard_BreakInputActive(void) {
     return HAL_GPIO_ReadPin(RECT_BKIN_GPIO_Port, RECT_BKIN_Pin) == GPIO_PIN_SET;
+}
+
+static const char *AcdcBoard_StateName(AcdcState state) {
+    switch (state) {
+    case ACDC_STATE_LOCKED:
+        return "LOCK";
+    case ACDC_STATE_OFF:
+        return "OFF";
+    case ACDC_STATE_WAIT:
+        return "WAIT";
+    case ACDC_STATE_RUN:
+        return "RUN";
+    case ACDC_STATE_FAULT:
+        return "FAULT";
+    default:
+        return "?";
+    }
+}
+
+static void AcdcBoard_ShowSignedValue(uint8_t y, const char *name, float value, const char *unit) {
+    char line[24];
+    int32_t scaled = (int32_t)lroundf(value * 100.0f);
+    char sign = (scaled < 0) ? '-' : ' ';
+    uint32_t magnitude = (uint32_t)((scaled < 0) ? -scaled : scaled);
+
+    (void)snprintf(line, sizeof(line), "%s=%c%lu.%02lu%s", name, sign, (unsigned long)(magnitude / 100U),
+                   (unsigned long)(magnitude % 100U), unit);
+    OLED_ShowString(0U, y, (uint8_t *)line, 8U, 1U);
+}
+
+static void AcdcBoard_DisplaySnapshot(const AcdcSnapshot *snapshot) {
+    char line[24];
+    uint32_t duty_milli = (uint32_t)lroundf(snapshot->duty_low_side * 1000.0f);
+
+    OLED_ClearBuffer();
+    (void)snprintf(line, sizeof(line), "ACDC 62V %s", AcdcBoard_StateName(snapshot->state));
+    OLED_ShowString(0U, 0U, (uint8_t *)line, 8U, 1U);
+    AcdcBoard_ShowSignedValue(8U, "Iin", snapshot->iin_a, "A");
+    AcdcBoard_ShowSignedValue(16U, "Vcf", snapshot->vcf_v, "V");
+    AcdcBoard_ShowSignedValue(24U, "Bus", snapshot->vdc_v, "V");
+    (void)snprintf(line, sizeof(line), "D=%lu.%03lu", (unsigned long)(duty_milli / 1000U),
+                   (unsigned long)(duty_milli % 1000U));
+    OLED_ShowString(0U, 32U, (uint8_t *)line, 8U, 1U);
+    (void)snprintf(line, sizeof(line), "F=%04lX PWM=%s", (unsigned long)(snapshot->faults & 0xFFFFU),
+                   snapshot->gates_enabled ? "ON" : "OFF");
+    OLED_ShowString(0U, 40U, (uint8_t *)line, 8U, 1U);
+    (void)snprintf(line, sizeof(line), "Iin:PA5 Vcf:PC5");
+    OLED_ShowString(0U, 48U, (uint8_t *)line, 8U, 1U);
+    (void)snprintf(line, sizeof(line), "Bus:PC4 H:PC7 L:PB0");
+    OLED_ShowString(0U, 56U, (uint8_t *)line, 8U, 1U);
+    OLED_Refresh();
 }
 
 static void AcdcBoard_ApplyOutput(const AcdcControlOutput *out) {
@@ -139,6 +194,11 @@ void AcdcBoard_Init(void) {
     /* 上电先关门，再碰任何可能拉高驱动输入的引脚。 */
     AcdcBoard_EmergencyStop();
     AcdcApp_Init(&s_application);
+    OLED_Init();
+    OLED_ColorTurn(0U);
+    OLED_DisplayTurn(0U);
+    OLED_Clear();
+    s_last_display_tick = HAL_GetTick();
     if (!AcdcBoard_ConfigureHalfBridgeChannels()) {
         AcdcApp_LatchControlFault(&s_application);
         return;
@@ -210,6 +270,11 @@ void AcdcBoard_BackgroundTask(void) {
         break;
     }
     HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, led_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+    if ((now - s_last_display_tick) >= 200U) {
+        AcdcBoard_DisplaySnapshot(&snapshot);
+        s_last_display_tick = now;
+    }
 }
 
 void AcdcBoard_GetSnapshot(AcdcSnapshot *snapshot) {

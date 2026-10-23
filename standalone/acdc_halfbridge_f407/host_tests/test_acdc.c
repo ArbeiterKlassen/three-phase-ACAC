@@ -80,6 +80,11 @@ static void TestVcfDividerCalibration(void) {
     MakeFrame(frame, 1.0f, 80.0f, 60.0f);
     CHECK(AcdcMeasurement_Convert(frame, &m));
     CHECK(fabsf(m.vcf_v - 80.0f) < 0.06f);
+
+    /* 单端采样没有中点偏置；噪声负值钳到 0 V。 */
+    MakeFrame(frame, 1.0f, -5.0f, 60.0f);
+    CHECK(AcdcMeasurement_Convert(frame, &m));
+    CHECK(m.vcf_v == 0.0f);
 }
 
 static void TestControlWarmupAndRun(void) {

@@ -20,6 +20,7 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
+#include "spi.h"
 #include "tim.h"
 #include "gpio.h"
 
@@ -99,6 +100,7 @@ int main(void) {
     MX_ADC1_Init();
     MX_ADC2_Init();
     MX_TIM8_Init();
+    MX_SPI3_Init();
     /* USER CODE BEGIN 2 */
     AcdcBoard_Init();
     /* USER CODE END 2 */

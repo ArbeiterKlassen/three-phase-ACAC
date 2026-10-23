@@ -23,7 +23,7 @@ static void AcdcApp_LatchFault(AcdcApplication *app, uint32_t fault) {
 
 static uint32_t AcdcApp_MeasurementFault(const AcdcMeasurement *measurement) {
     if (fabsf(measurement->iin_a) > ACDC_IIN_ABS_MAX_A) return ACDC_FAULT_INPUT_OVERCURRENT;
-    if (fabsf(measurement->vcf_v) > ACDC_VCF_INSTANT_MAX_V) return ACDC_FAULT_INPUT_OVERVOLTAGE;
+    if (measurement->vcf_v > ACDC_VCF_INSTANT_MAX_V) return ACDC_FAULT_INPUT_OVERVOLTAGE;
     if (measurement->vdc_v > ACDC_DC_MAX_V) return ACDC_FAULT_BUS_OVERVOLTAGE;
     return 0U;
 }

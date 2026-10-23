@@ -55,6 +55,7 @@
 | 外部 Break | PA6 | TIM8_BKIN，高有效 | — |
 | 启动/停止/清故障 | PC13 | USER_KEY，低有效 | — |
 | 状态 LED | PB8 | GPIO | — |
+| OLED | PC10/PC12 SPI3，PC11 DC，PD0 RES，PD1 CS | 128×64 | — |
 
 原有的两路电流、两路电压采样 `PC0/PC1/PC2/PC3` 全部保留，不能挪作 ACDC
 用途。整流侧只使用 **PC5 / ADC2_IN15** 这一路 Vcf；新前端采用：
@@ -75,6 +76,9 @@ Vcf ── 48.4 kΩ ──┬── PC5/ADC2_IN15
 
 该量程覆盖 41 V RMS 输入的 58 V 峰值。1.9 kΩ 节点的源阻抗对当前 28-cycle
 采样时间足够低；若实际增加了较大的 RC 滤波，应同步增加 ADC 采样周期。
+
+Vcf 是单端、从 0 V 向上取的脉动直流电压，不使用交流采样的 1.65 V 中点偏置；
+换算出的轻微负值会直接钳到 0 V。
 
 PB1 保持 TIM8_CH3N 用途，不配置为 ADC；PA0/PA1 保持未使用。
 
@@ -120,6 +124,9 @@ PB1 保持 TIM8_CH3N 用途，不配置为 ADC；PA0/PA1 保持未使用。
 - `FAULT`：清除锁存并回到 `OFF`，需要再按一次才重新请求启动。
 
 默认 `ACDC_AUTO_START=0`，即每次上电后必须按键启动。
+
+OLED 每 200 ms 刷新一次，显示状态、Iin、Vcf、Vdc、占空比、故障码和门极
+是否开启。
 
 ## 5. 保护阈值
 
@@ -171,8 +178,8 @@ gcc -std=c11 -O2 -Wall -Wextra host_tests\sim_input_current.c -lm -o sim_acdc.ex
 CubeIDE 2.2.0 已实际构建通过（下面是默认 `COMMISSIONED=0` 安全锁定构建的尺寸）：
 
 ```text
-Debug:   text 24272 B, data 92 B, bss 4188 B
-Release: text 13888 B, data 92 B, bss 4188 B
+Debug:   text 37716 B, data 92 B, bss 5452 B
+Release: text 25856 B, data 92 B, bss 5452 B
 ```
 
 命令行复编（把工作区路径换成自己的临时目录）：
@@ -199,7 +206,6 @@ Release/acdc_halfbridge_f407.elf
   实物值并重跑；
 - 输入电流量程决定 31 V 满载只能“擦线通过”，换传感器或降低输出功率更稳；
 - 小于 0.5 A 的轻载 PF/THD 会明显变差；
-- 当前只用 LED 显示状态，没有恢复旧工程 OLED 菜单；
 - 零母线直接合闸会产生很大的 LC 涌流，软件预充流程不能替代硬件预充；
 - 原板没有分配驱动器的 `EN_RECT`/`SD` 使能脚；如果所用驱动板需要使能，
   必须把该脚接成上电即安全关闭、只有 MCU 明确拉高后才允许驱动的逻辑；
