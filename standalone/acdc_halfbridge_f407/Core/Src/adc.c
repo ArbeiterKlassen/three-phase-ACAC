@@ -162,7 +162,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef *adcHandle) {
     PC0     ------> ADC1_IN10
     PC2     ------> ADC1_IN12 (Vab, 最终 ACAC 保留)
     PA5     ------> ADC1_IN5
-    PC4     ------> ADC1_IN14
+    PC4     ------> ADC1_IN14 (Vdc)
     */
         GPIO_InitStruct.Pin = ADC_IB_Pin | ADC_VAB_Pin | ADC_VDC_Pin;
         GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
@@ -235,7 +235,7 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef *adcHandle) {
     PC0     ------> ADC1_IN10
     PC2     ------> ADC1_IN12 (Vab, 最终 ACAC 保留)
     PA5     ------> ADC1_IN5
-    PC4     ------> ADC1_IN14
+    PC4     ------> ADC1_IN14 (Vdc)
     */
         HAL_GPIO_DeInit(GPIOC, ADC_IB_Pin | ADC_VAB_Pin | ADC_VDC_Pin);
 

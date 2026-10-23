@@ -5,10 +5,8 @@
 /*
  * 单半桥 ACDC 的唯一配置入口。
  *
- * 这张表故意保留两个“必须先确认”的开关：
- *   ACDC_ACTIVE_HALFBRIDGE_LEG
- *   ACDC_HARDWARE_COMMISSIONED
- * 前者选实际还存在的半桥，后者是上电门禁。未完成接线、标定和预充验证时，
+ * 功率桥固定为 PC7/PB0：PC7=HI，PB0=LI，对应 TIM8 CH2/CH2N。
+ * ACDC_HARDWARE_COMMISSIONED 是上电门禁；未完成接线、标定和预充验证时，
  * 固件只采样，不会开任何门极。
  */
 
@@ -62,17 +60,9 @@
 #define ACDC_PRECHARGE_CONFIRM_SAMPLES (2000U)   // 100 ms
 #define ACDC_UNDERVOLTAGE_CONFIRM_SAMPLES (800U) // 40 ms
 
-/* ── 物理板选择 ───────────────────────────────────────────────────── */
-#define ACDC_HALFBRIDGE_LEG_A (0)
-#define ACDC_HALFBRIDGE_LEG_B (1)
-
-#ifndef ACDC_ACTIVE_HALFBRIDGE_LEG
-#define ACDC_ACTIVE_HALFBRIDGE_LEG ACDC_HALFBRIDGE_LEG_A
-#endif
-
 /*
  * 默认必须为 0。完成以下项目后才允许改 1：
- *   1) PC7/PB0（或 PA7/PC6）到实际半桥的 HI/LI 对应关系已用表确认；
+ *   1) PC7=HI、PB0=LI 到实际半桥的对应关系已用表确认；
  *   2) Iin/Vcf/Vdc 三路零点和比例已实测，原有四路采样未改动；
  *   3) 预充电阻/NTC 或限流电源已验证，零母线合闸不会超过器件量程；
  *   4) 1 us 死区和自举高侧供电已用示波器确认。

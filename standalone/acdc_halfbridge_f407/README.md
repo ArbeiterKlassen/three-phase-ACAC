@@ -22,7 +22,7 @@
 
 这是刻意的上电安全锁。未完成以下事项前不要改成 `1`：
 
-1. 确认实际留存的是 A 组还是 B 组半桥；
+1. 确认半桥 HI=PC7、LI=PB0，且没有与另一组 PA7/PC6 混接；
 2. 标定 `Iin / Vcf / Vdc`，并确认原 PC0..PC3 四路没有被改动；
 3. 用限流电源、预充电阻/NTC 验证零母线合闸；
 4. 示波器确认 1 us 死区、互补关系和自举高侧供电。
@@ -31,21 +31,15 @@
 
 ## 2. 硬件接口
 
-### 2.1 半桥选择
+### 2.1 半桥
 
-| 逻辑组 | 高侧 | 低侧 | TIM8 通道 | 默认 |
-|---|---|---|---|---|
-| A | PC7 | PB0 | CH2 / CH2N，PWM1 | **是** |
-| B | PA7 | PC6 | CH1N / CH1，CH1 配 PWM2 | 可选 |
+功率半桥固定为：
 
-切换 B 组，在 `acdc_config.h` 改：
+| 高侧 HI | 低侧 LI | TIM8 通道 |
+|---|---|---|
+| **PC7** | **PB0** | CH2 / CH2N，PWM1 |
 
-```c
-#define ACDC_ACTIVE_HALFBRIDGE_LEG ACDC_HALFBRIDGE_LEG_B
-```
-
-两组通道都完成了定时器配置，但同一时间只会使能被选中的一组 CCER；未选中的
-一组保持门极关闭。
+另一组 PA7/PC6 不参与本工程，CCER 始终关闭。
 
 ### 2.2 ADC 与保护
 
@@ -55,15 +49,15 @@
 | 物理量 | 引脚 | ADC | rank |
 |---|---|---|---|
 | `Iin`（有符号交流电流） | PA5 | ADC1_IN5 | 1 低 16 位 |
-| `Vcf`（桥后 LC 电容电压） | **PC5** | ADC12_IN15（当前用 ADC2） | 1 高 16 位 |
-| `Vdc`（母线电压） | PC4 | ADC1_IN14 | 4 低 16 位 |
+| `Vcf`（桥后 LC 电容电压） | **PC5** | ADC2_IN15 | 1 高 16 位 |
+| `Vdc`（母线电压） | **PC4** | ADC1_IN14 | 4 低 16 位 |
 | 原 Vab 输出采样 | PC2 | ADC1_IN12 | 3 低 16 位，**保留不动** |
 | 外部 Break | PA6 | TIM8_BKIN，高有效 | — |
 | 启动/停止/清故障 | PC13 | USER_KEY，低有效 | — |
 | 状态 LED | PB8 | GPIO | — |
 
 原有的两路电流、两路电压采样 `PC0/PC1/PC2/PC3` 全部保留，不能挪作 ACDC
-用途。整流侧只增加 **PC5 / ADC2_IN15** 这一路 Vcf；新前端采用：
+用途。整流侧只使用 **PC5 / ADC2_IN15** 这一路 Vcf；新前端采用：
 
 ```text
 Vcf ── 48.4 kΩ ──┬── PC5/ADC2_IN15
@@ -81,6 +75,8 @@ Vcf ── 48.4 kΩ ──┬── PC5/ADC2_IN15
 
 该量程覆盖 41 V RMS 输入的 58 V 峰值。1.9 kΩ 节点的源阻抗对当前 28-cycle
 采样时间足够低；若实际增加了较大的 RC 滤波，应同步增加 ADC 采样周期。
+
+PB1 保持 TIM8_CH3N 用途，不配置为 ADC；PA0/PA1 保持未使用。
 
 ## 3. 控制结构
 
@@ -175,8 +171,8 @@ gcc -std=c11 -O2 -Wall -Wextra host_tests\sim_input_current.c -lm -o sim_acdc.ex
 CubeIDE 2.2.0 已实际构建通过（下面是默认 `COMMISSIONED=0` 安全锁定构建的尺寸）：
 
 ```text
-Debug:   text 24260 B, data 92 B, bss 4188 B
-Release: text 13916 B, data 92 B, bss 4188 B
+Debug:   text 24224 B, data 92 B, bss 4188 B
+Release: text 13904 B, data 92 B, bss 4188 B
 ```
 
 命令行复编（把工作区路径换成自己的临时目录）：

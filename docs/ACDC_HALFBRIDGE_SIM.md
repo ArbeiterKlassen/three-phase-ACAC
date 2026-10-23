@@ -67,7 +67,7 @@
 ## 3. 控制结构
 
 > 本文件前半部分是拓扑研究模型，使用理想 `|Vac|` 做电流参考。最终 ACAC
-> 硬件不能在 PC2 上增加 Vcf，只在 PC5 提供一个桥后 Vcf 采样；对应固件和
+> 硬件保留 PC0..PC3 原采样，在 PC5 提供唯一桥后 Vcf 采样；对应固件和
 > 独立复算模型改为 `Iref = Iamp·Vcf/Vcf,rms`，见
 > `standalone/acdc_halfbridge_f407/host_tests/sim_input_current.c`。
 

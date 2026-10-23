@@ -81,7 +81,7 @@ int main(void) {
    */
     __HAL_RCC_TIM8_CLK_ENABLE();
     TIM8->BDTR &= ~TIM_BDTR_MOE;
-    TIM8->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE);
+    TIM8->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
     TIM8->CCR1 = 2100U;
     TIM8->CCR2 = 2100U;
     /* USER CODE END Init */
@@ -164,7 +164,8 @@ void Error_Handler(void) {
     /* USER CODE BEGIN Error_Handler_Debug */
     if ((RCC->APB2ENR & RCC_APB2ENR_TIM8EN) != 0U) {
         TIM8->BDTR &= ~TIM_BDTR_MOE;
-        TIM8->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE);
+        TIM8->CCER &=
+            ~(TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
     }
     __disable_irq();
     while (1) {

@@ -21,7 +21,7 @@ typedef struct {
  *   word0 = Iin / Vcf(PC5，1.9k/48.4k 分压)
  *   word1 = 旧 Ib / Ia，本项目不用
  *   word2 = 原 Vab(PC2) / 旧 Vbc，留给最终 ACAC 工程，本 ACDC 控制不用
- *   word3 = Vdc / Vcf 诊断，本项目只用低 16 位
+ *   word3 = Vdc(PC4) / Vcf 诊断，本项目只用低 16 位
  * 失败时清空 out，调用者不得把旧值当作新测量。
  */
 bool AcdcMeasurement_Convert(const uint32_t frame[ACDC_ADC_RANK_COUNT], AcdcMeasurement *out);

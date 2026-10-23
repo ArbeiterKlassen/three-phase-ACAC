@@ -13,17 +13,9 @@
 #define ACDC_ADC_FRAME_COUNT (2U)
 #define ACDC_ADC_WORD_COUNT (ACDC_ADC_FRAME_COUNT * ACDC_ADC_RANK_COUNT)
 
-#if (ACDC_ACTIVE_HALFBRIDGE_LEG != ACDC_HALFBRIDGE_LEG_A) && (ACDC_ACTIVE_HALFBRIDGE_LEG != ACDC_HALFBRIDGE_LEG_B)
-#error "ACDC_ACTIVE_HALFBRIDGE_LEG must select leg A or B"
-#endif
-
-#if ACDC_ACTIVE_HALFBRIDGE_LEG == ACDC_HALFBRIDGE_LEG_A
 #define ACDC_ACTIVE_CCER_MASK (TIM_CCER_CC2E | TIM_CCER_CC2NE)
-#else
-#define ACDC_ACTIVE_CCER_MASK (TIM_CCER_CC1E | TIM_CCER_CC1NE)
-#endif
-
-#define ACDC_ALL_POWER_CCER_MASK (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE)
+#define ACDC_ALL_POWER_CCER_MASK                                                                                       \
+    (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE)
 
 static AcdcApplication s_application;
 static uint32_t s_adc_dma[ACDC_ADC_WORD_COUNT];
@@ -54,14 +46,10 @@ void AcdcBoard_EmergencyStop(void) {
     }
 }
 
-/*
- * CH1 的实物高侧是 CH1N、低侧是 CH1，因此配置成 PWM2 后 CH1N 才与普通
- * PWM1 高侧同相。默认 LEG_A 使用 CH2/CH2N，但两套通道都预先配好，避免
- * 切换到另一块现存半桥时还要改定时器波形语义。
- */
+/* 实际功率半桥固定为 PC7(HI)/PB0(LI)，即 TIM8 CH2/CH2N、PWM1。 */
 static bool AcdcBoard_ConfigureHalfBridgeChannels(void) {
     TIM_OC_InitTypeDef oc = {
-        .OCMode = TIM_OCMODE_PWM2,
+        .OCMode = TIM_OCMODE_PWM1,
         .Pulse = ACDC_PWM_NEUTRAL_COUNTS,
         .OCPolarity = TIM_OCPOLARITY_HIGH,
         .OCNPolarity = TIM_OCNPOLARITY_HIGH,
@@ -70,9 +58,6 @@ static bool AcdcBoard_ConfigureHalfBridgeChannels(void) {
         .OCNIdleState = TIM_OCNIDLESTATE_RESET,
     };
 
-    if (HAL_TIM_PWM_ConfigChannel(&htim8, &oc, TIM_CHANNEL_1) != HAL_OK) return false;
-
-    oc.OCMode = TIM_OCMODE_PWM1;
     if (HAL_TIM_PWM_ConfigChannel(&htim8, &oc, TIM_CHANNEL_2) != HAL_OK) return false;
 
     /* CH4 不出引脚，只给 ADC 提供中心对齐周期内的单次触发。 */
@@ -110,13 +95,8 @@ static void AcdcBoard_ApplyOutput(const AcdcControlOutput *out) {
     high_side_counts = (uint32_t)((1.0f - out->low_side_duty) * (float)ACDC_PWM_PERIOD_COUNTS + 0.5f);
     if (high_side_counts >= ACDC_PWM_PERIOD_COUNTS) high_side_counts = ACDC_PWM_PERIOD_COUNTS - 1U;
 
-#if ACDC_ACTIVE_HALFBRIDGE_LEG == ACDC_HALFBRIDGE_LEG_A
     TIM8->CCR2 = high_side_counts;
     TIM8->CCR1 = ACDC_PWM_NEUTRAL_COUNTS;
-#else
-    TIM8->CCR1 = high_side_counts;
-    TIM8->CCR2 = ACDC_PWM_NEUTRAL_COUNTS;
-#endif
     TIM8->CCER |= ACDC_ACTIVE_CCER_MASK;
     __HAL_TIM_MOE_ENABLE(&htim8);
 #endif
