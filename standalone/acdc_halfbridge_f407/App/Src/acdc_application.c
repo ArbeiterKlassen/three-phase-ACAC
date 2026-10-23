@@ -21,20 +21,18 @@ static void AcdcApp_LatchFault(AcdcApplication *app, uint32_t fault) {
     app->state = ACDC_HARDWARE_COMMISSIONED ? ACDC_STATE_FAULT : ACDC_STATE_LOCKED;
 }
 
-static bool AcdcApp_MeasurementProtection(AcdcApplication *app, const AcdcMeasurement *measurement) {
-    if (fabsf(measurement->iin_a) > ACDC_IIN_ABS_MAX_A) {
-        AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERCURRENT);
-        return false;
-    }
-    if (fabsf(measurement->vcf_v) > ACDC_VCF_INSTANT_MAX_V) {
-        AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERVOLTAGE);
-        return false;
-    }
-    if (measurement->vdc_v > ACDC_DC_MAX_V) {
-        AcdcApp_LatchFault(app, ACDC_FAULT_BUS_OVERVOLTAGE);
-        return false;
-    }
-    return true;
+static uint32_t AcdcApp_MeasurementFault(const AcdcMeasurement *measurement) {
+    if (fabsf(measurement->iin_a) > ACDC_IIN_ABS_MAX_A) return ACDC_FAULT_INPUT_OVERCURRENT;
+    if (fabsf(measurement->vcf_v) > ACDC_VCF_INSTANT_MAX_V) return ACDC_FAULT_INPUT_OVERVOLTAGE;
+    if (measurement->vdc_v > ACDC_DC_MAX_V) return ACDC_FAULT_BUS_OVERVOLTAGE;
+    return 0U;
+}
+
+static uint32_t AcdcApp_InvalidMeasurementFault(const AcdcMeasurement *measurement) {
+    if (measurement->iin_overrange) return ACDC_FAULT_INPUT_OVERCURRENT;
+    if (measurement->vdc_overrange) return ACDC_FAULT_BUS_OVERVOLTAGE;
+    if (measurement->vcf_overrange) return ACDC_FAULT_INPUT_OVERVOLTAGE;
+    return ACDC_FAULT_MEASUREMENT;
 }
 
 static void AcdcApp_RunControl(AcdcApplication *app, AcdcControlOutput *out) {
@@ -90,6 +88,7 @@ void AcdcApp_FastStep(AcdcApplication *app, const uint32_t frame[ACDC_ADC_RANK_C
     AcdcMeasurement measurement;
     AcdcControlOutput local;
     bool measured;
+    uint32_t protection_fault;
 
     if ((app == NULL) || (out == NULL)) return;
     AcdcApp_SafeOutput(&local);
@@ -99,26 +98,28 @@ void AcdcApp_FastStep(AcdcApplication *app, const uint32_t frame[ACDC_ADC_RANK_C
 
     if (!measured) {
         if (app->invalid_count < UINT32_MAX) app->invalid_count++;
+        protection_fault = AcdcApp_InvalidMeasurementFault(&measurement);
         /*
          * RUN 时绝不在无效测量下继续保留门极；先立即关门，再在连续
          * 2000 拍（100 ms）后锁存。启动阶段则允许 ADC/预充瞬间越限。
          */
-        if (measurement.iin_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERCURRENT);
-        else if (measurement.vdc_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_BUS_OVERVOLTAGE);
-        else if (measurement.vcf_overrange) AcdcApp_LatchFault(app, ACDC_FAULT_INPUT_OVERVOLTAGE);
-        else if ((app->state == ACDC_STATE_RUN) || (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES))
-            AcdcApp_LatchFault(app, ACDC_FAULT_MEASUREMENT);
+        if ((app->state == ACDC_STATE_RUN) || (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES))
+            AcdcApp_LatchFault(app, protection_fault);
+        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
+        AcdcApp_SafeOutput(out);
+        return;
+    }
+
+    protection_fault = AcdcApp_MeasurementFault(&measurement);
+    if (protection_fault != 0U) {
+        if (app->invalid_count < UINT32_MAX) app->invalid_count++;
+        if ((app->state == ACDC_STATE_RUN) || (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES))
+            AcdcApp_LatchFault(app, protection_fault);
         (void)AcdcControl_Step(&app->control, &measurement, false, &local);
         AcdcApp_SafeOutput(out);
         return;
     }
     app->invalid_count = 0U;
-
-    if (!AcdcApp_MeasurementProtection(app, &measurement)) {
-        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
-        AcdcApp_SafeOutput(out);
-        return;
-    }
 
     if (app->state == ACDC_STATE_LOCKED) {
         (void)AcdcControl_Step(&app->control, &measurement, false, &local);

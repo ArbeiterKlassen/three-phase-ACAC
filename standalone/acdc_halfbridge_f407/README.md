@@ -171,8 +171,8 @@ gcc -std=c11 -O2 -Wall -Wextra host_tests\sim_input_current.c -lm -o sim_acdc.ex
 CubeIDE 2.2.0 已实际构建通过（下面是默认 `COMMISSIONED=0` 安全锁定构建的尺寸）：
 
 ```text
-Debug:   text 24224 B, data 92 B, bss 4188 B
-Release: text 13904 B, data 92 B, bss 4188 B
+Debug:   text 24272 B, data 92 B, bss 4188 B
+Release: text 13888 B, data 92 B, bss 4188 B
 ```
 
 命令行复编（把工作区路径换成自己的临时目录）：

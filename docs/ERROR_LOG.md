@@ -159,6 +159,30 @@ T .weak.BoardPower_GetConfig.g_board_power_config   ← 别名段
 
 ---
 
+### E5 · 单半桥固件上电首批 ADC 数据误锁存为输入过流
+
+**现象**：安全锁定版固件烧录并复位后，应用状态正确停在 `LOCKED`，TIM8
+`CCER=0`、MOE=0，但 RAM 中 `faults=0x00000002`，即
+`ACDC_FAULT_INPUT_OVERCURRENT`。稳定后实测输入电流约 -3.15 A，并没有达到
+5.6 A 阈值。
+
+**根因**：双 ADC/DMA 刚启动时，第一批 CDR 数据尚未稳定，原始码落入非法
+窗口；旧逻辑只要看到 `iin_overrange` 就立即锁存输入过流。门极虽然仍被
+commissioning 锁关闭，但故障记录已经被污染。
+
+**修复**：
+
+- RUN 状态保持逐拍立即保护：测量无效或越限时当拍关门并锁存；
+- LOCKED/OFF/WAIT 等非运行状态改为连续 100 ms（2000 拍）确认后才锁存；
+- 原始码越限仍优先归类为输入过流/母线过压/输入过压，不误报成普通测量故障；
+- 增加“首帧 ADC 全零不得锁存”宿主机测试。
+
+**复验**：重新编译、烧录后读取 `s_application`，`state=LOCKED`、
+`faults=0`；TIM8 `CCER=0`、MOE=0；ADC DMA 数据持续更新，PB8 状态灯正常
+闪烁。
+
+---
+
 ## 二、尚未复现，需要上板确认
 
 ### Q1 · DCAC 输出只有 3 V 多，且每隔几秒出现一次频率震荡

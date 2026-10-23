@@ -183,17 +183,42 @@ static void TestVoltageProtection(void) {
     AcdcApplication app;
     AcdcControlOutput out;
     uint32_t frame[ACDC_ADC_RANK_COUNT];
+    uint32_t i;
 
     AcdcApp_Init(&app);
+    AcdcApp_ToggleRequest(&app);
+    MakeFrame(frame, 1.0f, 25.0f, 50.0f);
+    for (i = 0U; i < (ACDC_RMS_WINDOW_SAMPLES + ACDC_PRECHARGE_CONFIRM_SAMPLES + 10U); i++)
+        AcdcApp_FastStep(&app, frame, &out);
+    CHECK(app.state == ACDC_STATE_RUN);
     MakeFrame(frame, 1.0f, 66.0f, 50.0f);
     AcdcApp_FastStep(&app, frame, &out);
     CHECK((app.faults & ACDC_FAULT_INPUT_OVERVOLTAGE) != 0U);
     CHECK(!out.gates_enabled);
 
     AcdcApp_Init(&app);
+    AcdcApp_ToggleRequest(&app);
+    MakeFrame(frame, 1.0f, 25.0f, 50.0f);
+    for (i = 0U; i < (ACDC_RMS_WINDOW_SAMPLES + ACDC_PRECHARGE_CONFIRM_SAMPLES + 10U); i++)
+        AcdcApp_FastStep(&app, frame, &out);
+    CHECK(app.state == ACDC_STATE_RUN);
     MakeFrame(frame, 1.0f, 20.0f, 67.0f);
     AcdcApp_FastStep(&app, frame, &out);
     CHECK((app.faults & ACDC_FAULT_BUS_OVERVOLTAGE) != 0U);
+    CHECK(!out.gates_enabled);
+}
+
+static void TestStartupAdcGlitchDoesNotLatch(void) {
+    AcdcApplication app;
+    AcdcControlOutput out;
+    uint32_t frame[ACDC_ADC_RANK_COUNT];
+
+    AcdcApp_Init(&app);
+    MakeFrame(frame, 1.0f, 25.0f, 50.0f);
+    frame[0] = 0U; // First DMA frame can still contain zero/uninitialised CDR data.
+    AcdcApp_FastStep(&app, frame, &out);
+    CHECK(app.state == ACDC_STATE_OFF);
+    CHECK(app.faults == 0U);
     CHECK(!out.gates_enabled);
 }
 
@@ -204,6 +229,7 @@ int main(void) {
     TestApplicationStartAndProtection();
     TestUndervoltageTripsWithoutControlFault();
     TestVoltageProtection();
+    TestStartupAdcGlitchDoesNotLatch();
 
     if (g_failures != 0) {
         printf("%d host test(s) failed.\n", g_failures);
