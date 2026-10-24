@@ -33,6 +33,8 @@ typedef struct {
     uint32_t invalid_count;
     uint32_t precharge_count;
     uint32_t undervoltage_count;
+    uint32_t bus_overvoltage_count;
+    uint32_t input_overvoltage_count;
     bool start_requested;
 } AcdcApplication;
 

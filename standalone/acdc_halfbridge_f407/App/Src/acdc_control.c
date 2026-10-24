@@ -206,13 +206,13 @@ bool AcdcControl_Step(AcdcControl *control, const AcdcMeasurement *measurement, 
 
     if (!control->enabled_previous) {
         /*
-         * 第一次开门的参考从当前母线下方 1 V 起坡，而不是从 0 V 起。
-         * 这样不会先让母线自由放电，再等软启动追上来；积分器也从无扰状态
-         * 开始，避免 ENTER RUN 瞬间冲电流。
+         * 从 0 V 开始完整的软启动。母线已经由二极管被动充电时，
+         * 参考低于母线期间电流指令保持 0，门极不打开；等参考爬过母线后
+         * 才从小电流开始接管，避免一进 RUN 就按 Vcf/Vbus 前馈抢能量。
          */
         AcdcPi_Reset(&control->bus_pi, 0.0f);
         control->current_integral_v = 0.0f;
-        control->voltage_reference_v = AcdcControl_Clamp(measurement->vdc_v - 1.0f, 0.0f, control->cfg.vbus_target_v);
+        control->voltage_reference_v = 0.0f;
         AcdcNotch_Reset(&control->bus_notch, measurement->vdc_v);
         control->outer_count = ACDC_OUTER_LOOP_DIVIDER - 1U;
         control->enabled_previous = true;
@@ -261,6 +261,7 @@ bool AcdcControl_Step(AcdcControl *control, const AcdcMeasurement *measurement, 
     out->current_limited = control->current_rms_command_a >= (control->cfg.iin_command_max_a - 1.0e-5f);
     out->duty_limited = fabsf(duty - requested_duty) > 1.0e-7f;
     out->valid = isfinite(duty) && (control->current_rms_command_a >= 0.0f);
-    out->gates_enabled = out->valid;
+    /* 软启动尚未请求电流时保持门极关闭，母线继续走二极管通路。 */
+    out->gates_enabled = out->valid && (control->current_rms_command_a > 0.0f);
     return out->valid;
 }

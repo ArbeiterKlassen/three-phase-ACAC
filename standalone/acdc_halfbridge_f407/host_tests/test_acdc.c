@@ -91,11 +91,12 @@ static void TestVdcBenchCalibration(void) {
     uint32_t frame[ACDC_ADC_RANK_COUNT];
     AcdcMeasurement m;
 
-    CHECK(fabsf(g_acdc_cal_vdc.gain - 0.016101255f) < 1.0e-8f);
+    CHECK(fabsf(g_acdc_cal_vdc.gain - g_acdc_cal_vcf.gain) < 1.0e-8f);
+    CHECK(g_acdc_cal_vdc.offset_count == 0.0f);
     MakeFrame(frame, 1.0f, 20.0f, 20.0f);
-    frame[3] = (frame[3] & 0xFFFF0000U) | 1582U;
+    frame[3] = (frame[3] & 0xFFFF0000U) | 2114U;
     CHECK(AcdcMeasurement_Convert(frame, &m));
-    CHECK(fabsf(m.vdc_v - 25.4f) < 0.03f);
+    CHECK(fabsf(m.vdc_v - 45.10f) < 0.03f);
 }
 
 static void TestControlWarmupAndRun(void) {
@@ -120,9 +121,14 @@ static void TestControlWarmupAndRun(void) {
 
     CHECK(AcdcControl_Step(&control, &m, true, &out));
     CHECK(out.valid);
-    CHECK(out.gates_enabled);
+    CHECK(!out.gates_enabled);
+    CHECK(out.current_rms_cmd_a == 0.0f);
     CHECK(out.low_side_duty >= ACDC_DUTY_MIN);
     CHECK(out.low_side_duty <= ACDC_DUTY_MAX);
+
+    for (i = 0U; i < 25000U; i++) CHECK(AcdcControl_Step(&control, &m, true, &out));
+    CHECK(out.gates_enabled);
+    CHECK(out.voltage_reference_v > m.vdc_v);
 
     m.valid = false;
     CHECK(!AcdcControl_Step(&control, &m, true, &out));
@@ -147,7 +153,7 @@ static void TestApplicationStartAndProtection(void) {
         AcdcApp_FastStep(&app, frame, &out);
     CHECK(app.state == ACDC_STATE_RUN);
     CHECK(!app.faults);
-    CHECK(out.gates_enabled);
+    CHECK(!out.gates_enabled);
     CHECK(out.low_side_duty >= ACDC_DUTY_MIN);
     CHECK(out.low_side_duty <= ACDC_DUTY_MAX);
 
@@ -195,6 +201,35 @@ static void TestUndervoltageTripsWithoutControlFault(void) {
     CHECK((app.faults & ACDC_FAULT_CONTROL) == 0U);
 }
 
+static void TestUndervoltageSingleSampleRecovers(void) {
+    AcdcApplication app;
+    AcdcControlOutput out;
+    uint32_t frame[ACDC_ADC_RANK_COUNT];
+    uint32_t i;
+    float reference_before_fault;
+
+    AcdcApp_Init(&app);
+    AcdcApp_ToggleRequest(&app);
+    MakeFrame(frame, 1.0f, 25.0f, 50.0f);
+    for (i = 0U; i < (ACDC_RMS_WINDOW_SAMPLES + ACDC_PRECHARGE_CONFIRM_SAMPLES + 10U); i++)
+        AcdcApp_FastStep(&app, frame, &out);
+    CHECK(app.state == ACDC_STATE_RUN);
+    reference_before_fault = app.control.voltage_reference_v;
+
+    MakeFrame(frame, 1.0f, 20.0f, 29.0f);
+    AcdcApp_FastStep(&app, frame, &out);
+    CHECK(!out.gates_enabled);
+    CHECK(app.state == ACDC_STATE_RUN);
+    CHECK(app.undervoltage_count == 1U);
+    CHECK(app.control.voltage_reference_v == reference_before_fault);
+
+    MakeFrame(frame, 1.0f, 20.0f, 50.0f);
+    AcdcApp_FastStep(&app, frame, &out);
+    CHECK(app.state == ACDC_STATE_RUN);
+    CHECK(app.undervoltage_count == 0U);
+    CHECK(app.control.voltage_reference_v > reference_before_fault);
+}
+
 static void TestVoltageProtection(void) {
     AcdcApplication app;
     AcdcControlOutput out;
@@ -208,6 +243,11 @@ static void TestVoltageProtection(void) {
         AcdcApp_FastStep(&app, frame, &out);
     CHECK(app.state == ACDC_STATE_RUN);
     MakeFrame(frame, 1.0f, 66.0f, 50.0f);
+    for (i = 1U; i < ACDC_OVERVOLTAGE_CONFIRM_SAMPLES; i++) {
+        AcdcApp_FastStep(&app, frame, &out);
+        CHECK(app.state == ACDC_STATE_RUN);
+        CHECK(!out.gates_enabled);
+    }
     AcdcApp_FastStep(&app, frame, &out);
     CHECK((app.faults & ACDC_FAULT_INPUT_OVERVOLTAGE) != 0U);
     CHECK(!out.gates_enabled);
@@ -219,9 +259,51 @@ static void TestVoltageProtection(void) {
         AcdcApp_FastStep(&app, frame, &out);
     CHECK(app.state == ACDC_STATE_RUN);
     MakeFrame(frame, 1.0f, 20.0f, 67.0f);
+    for (i = 1U; i < ACDC_OVERVOLTAGE_CONFIRM_SAMPLES; i++) {
+        AcdcApp_FastStep(&app, frame, &out);
+        CHECK(app.state == ACDC_STATE_RUN);
+        CHECK(!out.gates_enabled);
+    }
     AcdcApp_FastStep(&app, frame, &out);
     CHECK((app.faults & ACDC_FAULT_BUS_OVERVOLTAGE) != 0U);
     CHECK(!out.gates_enabled);
+}
+
+static void TestBusOvervoltageSingleSampleRecovers(void) {
+    AcdcApplication app;
+    AcdcControlOutput out;
+    uint32_t frame[ACDC_ADC_RANK_COUNT];
+    uint32_t i;
+    float reference_before_fault;
+
+    AcdcApp_Init(&app);
+    AcdcApp_ToggleRequest(&app);
+    MakeFrame(frame, 1.0f, 25.0f, 50.0f);
+    for (i = 0U; i < (ACDC_RMS_WINDOW_SAMPLES + ACDC_PRECHARGE_CONFIRM_SAMPLES + 10U); i++)
+        AcdcApp_FastStep(&app, frame, &out);
+    CHECK(app.state == ACDC_STATE_RUN);
+    reference_before_fault = app.control.voltage_reference_v;
+
+    MakeFrame(frame, 1.0f, 20.0f, 67.0f);
+    AcdcApp_FastStep(&app, frame, &out);
+    CHECK(!out.gates_enabled);
+    CHECK(app.state == ACDC_STATE_RUN);
+    CHECK(app.faults == 0U);
+    CHECK(app.control.voltage_reference_v == reference_before_fault);
+
+    MakeFrame(frame, 1.0f, 66.0f, 50.0f);
+    AcdcApp_FastStep(&app, frame, &out);
+    CHECK(!out.gates_enabled);
+    CHECK(app.state == ACDC_STATE_RUN);
+    CHECK(app.faults == 0U);
+    CHECK(app.control.voltage_reference_v == reference_before_fault);
+
+    MakeFrame(frame, 1.0f, 20.0f, 50.0f);
+    AcdcApp_FastStep(&app, frame, &out);
+    CHECK(app.state == ACDC_STATE_RUN);
+    CHECK(app.bus_overvoltage_count == 0U);
+    CHECK(app.input_overvoltage_count == 0U);
+    CHECK(app.control.voltage_reference_v > reference_before_fault);
 }
 
 static void TestStartupAdcGlitchDoesNotLatch(void) {
@@ -245,7 +327,9 @@ int main(void) {
     TestControlWarmupAndRun();
     TestApplicationStartAndProtection();
     TestUndervoltageTripsWithoutControlFault();
+    TestUndervoltageSingleSampleRecovers();
     TestVoltageProtection();
+    TestBusOvervoltageSingleSampleRecovers();
     TestStartupAdcGlitchDoesNotLatch();
 
     if (g_failures != 0) {

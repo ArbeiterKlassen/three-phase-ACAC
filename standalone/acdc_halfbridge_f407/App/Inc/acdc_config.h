@@ -22,7 +22,12 @@
 #define ACDC_DC_VOLTAGE_READY_TOLERANCE_V (3.0f)
 #define ACDC_DC_PRECHARGE_MIN_V (25.0f)
 #define ACDC_DC_RUN_MIN_V (30.0f)
-#define ACDC_DC_MAX_V (64.0f)
+/*
+ * 母线目标为 62 V。旧版 64 V 门限只留 2 V 余量，实测首次开管瞬态
+ * 会冲到 61 V 以上并偶发锁存；原 ACAC 工程使用 66 V，故这里恢复为 66 V。
+ * 新 PC4 分压在 66 V 时仅约 2.49 V，仍保留充足的 ADC 电气余量。
+ */
+#define ACDC_DC_MAX_V (66.0f)
 #define ACDC_DC_START_MAX_V (63.0f)
 #define ACDC_VCF_RMS_MIN_V (10.0f)
 #define ACDC_VCF_INSTANT_MAX_V (65.0f)
@@ -50,13 +55,14 @@
 #define ACDC_VCF_GAIN_V_PER_CODE ((ACDC_ADC_REFERENCE_V / ACDC_ADC_FULL_CODE) / ACDC_VCF_DIVIDER_RATIO)
 
 /*
- * PC4 母线通道现场两点修正。
- * 实测母线 25.4 V 时旧标定显示 26.6 V；保持 offset 不变，仅缩放 gain：
- *   raw = 26.6 / 0.016861944 + 4.5388 = 1582
- *   new_gain = 25.4 / (1582 - 4.5388) = 0.016101255 V/code
+ * PC4 母线通道重焊后使用与 PC5 相同的 48.4 kΩ / 1.9 kΩ 分压。
+ * 门极关闭时 Vcf≈Cbus，实测两路原始码均为 2114，因此直接复用
+ * PC5 的理论分压增益：2114 × 0.0213341 = 45.10 V。
+ * 单端分压从 0 V 起测，offset=0。目标 62 V 对应约 raw=2906，
+ * 明显低于 4031 的合法窗口上限。
  */
-#define ACDC_VDC_OFFSET_COUNT (4.5388f)
-#define ACDC_VDC_GAIN_V_PER_CODE (0.016101255f)
+#define ACDC_VDC_OFFSET_COUNT (0.0f)
+#define ACDC_VDC_GAIN_V_PER_CODE (ACDC_VCF_GAIN_V_PER_CODE)
 
 /* ── 控制器增益（与 host_tests/sim_input_current.c 一致） ─────────── */
 #define ACDC_BUS_PI_KP_A_PER_V (1.0f)
@@ -71,6 +77,7 @@
 #define ACDC_INVALID_CONFIRM_SAMPLES (2000U)     // 100 ms
 #define ACDC_PRECHARGE_CONFIRM_SAMPLES (2000U)   // 100 ms
 #define ACDC_UNDERVOLTAGE_CONFIRM_SAMPLES (800U) // 40 ms
+#define ACDC_OVERVOLTAGE_CONFIRM_SAMPLES (3U)    // 150 us；抑制开关沿单拍尖峰
 
 /*
  * 当前实验台构建为 1，允许矩阵键盘 # 长按启动；上电仍不会自动开管。

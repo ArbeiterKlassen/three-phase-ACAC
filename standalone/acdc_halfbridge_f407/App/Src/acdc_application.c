@@ -4,10 +4,47 @@
 #include <stddef.h>
 #include <string.h>
 
+static void AcdcApp_LatchFault(AcdcApplication *app, uint32_t fault);
+
 static void AcdcApp_SafeOutput(AcdcControlOutput *out) {
     if (out != NULL) {
         memset(out, 0, sizeof(*out));
         out->low_side_duty = 0.5f;
+    }
+}
+
+/*
+ * 母线/输入过压先立即关门，但必须连续确认 3 拍才锁存，避免把开关沿
+ * 单拍尖峰当成真实过压。输入过流等其余保护仍在 RUN 中立即锁存。
+ */
+static void AcdcApp_HandleProtection(AcdcApplication *app, uint32_t fault, AcdcControlOutput *out) {
+    const bool voltage_overvoltage = (fault == ACDC_FAULT_BUS_OVERVOLTAGE) || (fault == ACDC_FAULT_INPUT_OVERVOLTAGE);
+
+    /*
+     * 只关本拍门极，不能调用 disabled 控制步：它会清零母线参考，
+     * 让一次开关尖峰把整个软启动重新开始。
+     */
+    AcdcApp_SafeOutput(out);
+
+    if (app->invalid_count < UINT32_MAX) app->invalid_count++;
+    if (fault == ACDC_FAULT_BUS_OVERVOLTAGE) {
+        if (app->bus_overvoltage_count < UINT32_MAX) app->bus_overvoltage_count++;
+    } else {
+        app->bus_overvoltage_count = 0U;
+    }
+    if (fault == ACDC_FAULT_INPUT_OVERVOLTAGE) {
+        if (app->input_overvoltage_count < UINT32_MAX) app->input_overvoltage_count++;
+    } else {
+        app->input_overvoltage_count = 0U;
+    }
+
+    if (app->state == ACDC_STATE_RUN) {
+        if (!voltage_overvoltage || (app->bus_overvoltage_count >= ACDC_OVERVOLTAGE_CONFIRM_SAMPLES) ||
+            (app->input_overvoltage_count >= ACDC_OVERVOLTAGE_CONFIRM_SAMPLES)) {
+            AcdcApp_LatchFault(app, fault);
+        }
+    } else if (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES) {
+        AcdcApp_LatchFault(app, fault);
     }
 }
 
@@ -45,7 +82,7 @@ static void AcdcApp_RunControl(AcdcApplication *app, AcdcControlOutput *out) {
      */
     if (app->measurement.vdc_v < ACDC_DC_RUN_MIN_V) {
         if (app->undervoltage_count < UINT32_MAX) app->undervoltage_count++;
-        (void)AcdcControl_Step(&app->control, &app->measurement, false, out);
+        /* 单拍欠压只关门，不重置已经爬升的软启动参考。 */
         AcdcApp_SafeOutput(out);
         if (app->undervoltage_count >= ACDC_UNDERVOLTAGE_CONFIRM_SAMPLES)
             AcdcApp_LatchFault(app, ACDC_FAULT_BUS_UNDERVOLTAGE);
@@ -54,7 +91,7 @@ static void AcdcApp_RunControl(AcdcApplication *app, AcdcControlOutput *out) {
     app->undervoltage_count = 0U;
 
     ok = AcdcControl_Step(&app->control, &app->measurement, true, out);
-    if (!ok || !out->valid || !out->gates_enabled) {
+    if (!ok || !out->valid) {
         AcdcApp_LatchFault(app, ACDC_FAULT_CONTROL);
         AcdcApp_SafeOutput(out);
     }
@@ -97,29 +134,23 @@ void AcdcApp_FastStep(AcdcApplication *app, const uint32_t frame[ACDC_ADC_RANK_C
     app->control_output = local;
 
     if (!measured) {
-        if (app->invalid_count < UINT32_MAX) app->invalid_count++;
         protection_fault = AcdcApp_InvalidMeasurementFault(&measurement);
         /*
-         * RUN 时绝不在无效测量下继续保留门极；先立即关门，再在连续
-         * 2000 拍（100 ms）后锁存。启动阶段则允许 ADC/预充瞬间越限。
+         * RUN 时绝不在无效测量下继续保留门极；先立即关门。母线过压
+         * 连续 3 拍锁存，其余运行故障立即锁存；启动阶段统一等 100 ms。
          */
-        if ((app->state == ACDC_STATE_RUN) || (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES))
-            AcdcApp_LatchFault(app, protection_fault);
-        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
-        AcdcApp_SafeOutput(out);
+        AcdcApp_HandleProtection(app, protection_fault, out);
         return;
     }
 
     protection_fault = AcdcApp_MeasurementFault(&measurement);
     if (protection_fault != 0U) {
-        if (app->invalid_count < UINT32_MAX) app->invalid_count++;
-        if ((app->state == ACDC_STATE_RUN) || (app->invalid_count >= ACDC_INVALID_CONFIRM_SAMPLES))
-            AcdcApp_LatchFault(app, protection_fault);
-        (void)AcdcControl_Step(&app->control, &measurement, false, &local);
-        AcdcApp_SafeOutput(out);
+        AcdcApp_HandleProtection(app, protection_fault, out);
         return;
     }
     app->invalid_count = 0U;
+    app->bus_overvoltage_count = 0U;
+    app->input_overvoltage_count = 0U;
 
     if (app->state == ACDC_STATE_LOCKED) {
         (void)AcdcControl_Step(&app->control, &measurement, false, &local);
@@ -179,6 +210,8 @@ void AcdcApp_ToggleRequest(AcdcApplication *app) {
         app->invalid_count = 0U;
         app->precharge_count = 0U;
         app->undervoltage_count = 0U;
+        app->bus_overvoltage_count = 0U;
+        app->input_overvoltage_count = 0U;
         AcdcControl_Reset(&app->control);
         return;
     }
@@ -187,6 +220,8 @@ void AcdcApp_ToggleRequest(AcdcApplication *app) {
         app->state = ACDC_STATE_OFF;
         app->precharge_count = 0U;
         app->undervoltage_count = 0U;
+        app->bus_overvoltage_count = 0U;
+        app->input_overvoltage_count = 0U;
         AcdcControl_Reset(&app->control);
     }
 }
