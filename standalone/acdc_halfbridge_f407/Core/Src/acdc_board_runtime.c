@@ -7,6 +7,7 @@
 #include "adc.h"
 #include "acdc_application.h"
 #include "gpio.h"
+#include "key_board.h"
 #include "main.h"
 #include "oled.h"
 #include "tim.h"
@@ -15,6 +16,10 @@
 #define ACDC_PWM_NEUTRAL_COUNTS (ACDC_PWM_PERIOD_COUNTS / 2U)
 #define ACDC_ADC_FRAME_COUNT (2U)
 #define ACDC_ADC_WORD_COUNT (ACDC_ADC_FRAME_COUNT * ACDC_ADC_RANK_COUNT)
+#define ACDC_KEY_SCAN_PERIOD_MS (10U)
+#define ACDC_KEY_DEBOUNCE_SAMPLES (3U)
+#define ACDC_KEY_LONG_PRESS_MS (2000U)
+#define ACDC_KEY_HASH (15U)
 
 #define ACDC_ACTIVE_CCER_MASK (TIM_CCER_CC2E | TIM_CCER_CC2NE)
 #define ACDC_ALL_POWER_CCER_MASK                                                                                       \
@@ -26,6 +31,12 @@ static bool s_key_was_down;
 static uint32_t s_key_change_tick;
 static bool s_key_accepted;
 static uint32_t s_last_display_tick;
+static uint32_t s_last_key_scan_tick;
+static uint8_t s_matrix_key_candidate;
+static uint8_t s_matrix_key_stable;
+static uint8_t s_matrix_key_count;
+static uint32_t s_matrix_key_pressed_tick;
+static bool s_matrix_key_long_handled;
 
 static uint32_t AcdcBoard_EnterCritical(void) {
     uint32_t primask = __get_PRIMASK();
@@ -91,6 +102,39 @@ static const char *AcdcBoard_StateName(AcdcState state) {
     }
 }
 
+static void AcdcBoard_ToggleStartSafely(void) {
+    uint32_t primask = AcdcBoard_EnterCritical();
+    AcdcApp_ToggleRequest(&s_application);
+    AcdcBoard_EmergencyStop();
+    __HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_BREAK);
+    HAL_NVIC_ClearPendingIRQ(TIM8_BRK_TIM12_IRQn);
+    AcdcBoard_ExitCritical(primask);
+}
+
+/* # 键长按 2 s 启动/停止；其它矩阵键暂不参与 ACDC 单级操作。 */
+static void AcdcBoard_ScanMatrixKey(uint32_t now) {
+    uint8_t raw = (uint8_t)Read_Key();
+
+    if (raw != s_matrix_key_candidate) {
+        s_matrix_key_candidate = raw;
+        s_matrix_key_count = 1U;
+    } else if (s_matrix_key_count < ACDC_KEY_DEBOUNCE_SAMPLES) {
+        s_matrix_key_count++;
+    }
+
+    if ((s_matrix_key_count >= ACDC_KEY_DEBOUNCE_SAMPLES) && (s_matrix_key_stable != s_matrix_key_candidate)) {
+        s_matrix_key_stable = s_matrix_key_candidate;
+        s_matrix_key_pressed_tick = now;
+        s_matrix_key_long_handled = false;
+    }
+
+    if ((s_matrix_key_stable == ACDC_KEY_HASH) && !s_matrix_key_long_handled &&
+        ((now - s_matrix_key_pressed_tick) >= ACDC_KEY_LONG_PRESS_MS)) {
+        AcdcBoard_ToggleStartSafely();
+        s_matrix_key_long_handled = true;
+    }
+}
+
 static void AcdcBoard_ShowSignedValue(uint8_t y, const char *name, float value, const char *unit) {
     char line[24];
     int32_t scaled = (int32_t)lroundf(value * 100.0f);
@@ -120,7 +164,7 @@ static void AcdcBoard_DisplaySnapshot(const AcdcSnapshot *snapshot) {
     OLED_ShowString(0U, 40U, (uint8_t *)line, 8U, 1U);
     (void)snprintf(line, sizeof(line), "Iin:PA5 Vcf:PC5");
     OLED_ShowString(0U, 48U, (uint8_t *)line, 8U, 1U);
-    (void)snprintf(line, sizeof(line), "Bus:PC4 H:PC7 L:PB0");
+    (void)snprintf(line, sizeof(line), "# HOLD2S START/STOP");
     OLED_ShowString(0U, 56U, (uint8_t *)line, 8U, 1U);
     OLED_Refresh();
 }
@@ -194,11 +238,16 @@ void AcdcBoard_Init(void) {
     /* 上电先关门，再碰任何可能拉高驱动输入的引脚。 */
     AcdcBoard_EmergencyStop();
     AcdcApp_Init(&s_application);
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    Key_init();
     OLED_Init();
     OLED_ColorTurn(0U);
     OLED_DisplayTurn(0U);
     OLED_Clear();
     s_last_display_tick = HAL_GetTick();
+    s_last_key_scan_tick = HAL_GetTick();
     if (!AcdcBoard_ConfigureHalfBridgeChannels()) {
         AcdcApp_LatchControlFault(&s_application);
         return;
@@ -241,17 +290,13 @@ void AcdcBoard_BackgroundTask(void) {
         s_key_accepted = false;
     }
     if (key_down && !s_key_accepted && ((now - s_key_change_tick) >= 30U)) {
-        uint32_t primask = AcdcBoard_EnterCritical();
-        AcdcApp_ToggleRequest(&s_application);
-        AcdcBoard_EmergencyStop();
-        /*
-         * 清故障后允许重新 arm，但必须清掉上一次 BKIN 留下的标志和
-         * NVIC pending；若故障源仍在，下一拍仍会重新锁存。
-         */
-        __HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_BREAK);
-        HAL_NVIC_ClearPendingIRQ(TIM8_BRK_TIM12_IRQn);
-        AcdcBoard_ExitCritical(primask);
+        AcdcBoard_ToggleStartSafely();
         s_key_accepted = true;
+    }
+
+    if ((now - s_last_key_scan_tick) >= ACDC_KEY_SCAN_PERIOD_MS) {
+        s_last_key_scan_tick = now;
+        AcdcBoard_ScanMatrixKey(now);
     }
 
     AcdcBoard_GetSnapshot(&snapshot);

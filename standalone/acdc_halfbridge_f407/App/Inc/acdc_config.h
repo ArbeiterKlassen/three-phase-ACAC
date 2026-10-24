@@ -73,14 +73,15 @@
 #define ACDC_UNDERVOLTAGE_CONFIRM_SAMPLES (800U) // 40 ms
 
 /*
- * 默认必须为 0。完成以下项目后才允许改 1：
+ * 当前实验台构建为 1，允许矩阵键盘 # 长按启动；上电仍不会自动开管。
+ * 正式复测前仍应确认以下项目：
  *   1) PC7=HI、PB0=LI 到实际半桥的对应关系已用表确认；
  *   2) Iin/Vcf/Vdc 三路零点和比例已实测，原有四路采样未改动；
  *   3) 预充电阻/NTC 或限流电源已验证，零母线合闸不会超过器件量程；
  *   4) 1 us 死区和自举高侧供电已用示波器确认。
  */
 #ifndef ACDC_HARDWARE_COMMISSIONED
-#define ACDC_HARDWARE_COMMISSIONED (0)
+#define ACDC_HARDWARE_COMMISSIONED (1)
 #endif
 
 /* 可选：实验台上由按键启动仍保留；若希望给电自动进入待机启动流程可改 1。 */

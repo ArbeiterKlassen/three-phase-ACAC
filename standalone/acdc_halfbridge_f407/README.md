@@ -14,20 +14,20 @@
 
 ## 1. 当前安全状态
 
-编译结果可用，但默认**不会开管**。`App/Inc/acdc_config.h` 中：
+当前实验台构建已允许启动，但上电仍**不会自动开管**。`App/Inc/acdc_config.h` 中：
 
 ```c
-#define ACDC_HARDWARE_COMMISSIONED (0)
+#define ACDC_HARDWARE_COMMISSIONED (1)
 ```
 
-这是刻意的上电安全锁。未完成以下事项前不要改成 `1`：
+启动仍由人工按键触发。正式复测前建议确认：
 
 1. 确认半桥 HI=PC7、LI=PB0，且没有与另一组 PA7/PC6 混接；
 2. 标定 `Iin / Vcf / Vdc`，并确认原 PC0..PC3 四路没有被改动；
 3. 用限流电源、预充电阻/NTC 验证零母线合闸；
 4. 示波器确认 1 us 死区、互补关系和自举高侧供电。
 
-完成后按 [COMMISSIONING.md](docs/COMMISSIONING.md) 逐项验收。
+完整验收见 [COMMISSIONING.md](docs/COMMISSIONING.md)。
 
 ## 2. 硬件接口
 
@@ -54,6 +54,7 @@
 | 原 Vab 输出采样 | PC2 | ADC1_IN12 | 3 低 16 位，**保留不动** |
 | 外部 Break | PA6 | TIM8_BKIN，高有效 | — |
 | 启动/停止/清故障 | PC13 | USER_KEY，低有效 | — |
+| 矩阵键盘 `#` | PE4 / PD7 | 行 / 列，低/高电平扫描 | — |
 | 状态 LED | PB8 | GPIO | — |
 | OLED | PC10/PC12 SPI3，PC11 DC，PD0 RES，PD1 CS | 128×64 | — |
 
@@ -118,12 +119,22 @@ PB1 保持 TIM8_CH3N 用途，不配置为 ADC；PA0/PA1 保持未使用。
 | `RUN` | 闭环运行 | 常亮 |
 | `FAULT` | 门极锁存关闭 | 100 ms 闪 |
 
-按键消抖 30 ms：
+矩阵键盘 `#` 长按 2 s 启动/停止；PC13 用户键仍保留为备用启停/清故障。
+
+PC13 按键消抖 30 ms：
 
 - `OFF/WAIT/RUN`：切换启动请求；
 - `FAULT`：清除锁存并回到 `OFF`，需要再按一次才重新请求启动。
 
 默认 `ACDC_AUTO_START=0`，即每次上电后必须按键启动。
+
+`#` 只负责发出启动请求，不会绕过 `WAIT` 条件。若长按后停在 `WAIT`，先看 OLED：
+
+- `Vcf RMS` 必须至少 10 V；
+- `Bus` 必须在 30..63 V 并连续保持 100 ms。
+
+例如输入已经整流到约 45 V、但 `Bus` 显示约 14 V 时，固件会拒绝开管。这不是
+按键失效，而是 PC4 母线采样/分压或共地仍有问题；不要通过降低母线阈值来绕过。
 
 OLED 每 200 ms 刷新一次，显示状态、Iin、Vcf、Vdc、占空比、故障码和门极
 是否开启。
@@ -198,6 +209,15 @@ Release: text 25856 B, data 92 B, bss 5452 B
 ```text
 Debug/acdc_halfbridge_f407.elf
 Release/acdc_halfbridge_f407.elf
+```
+
+命令行构建不保证同步刷新 `.hex/.bin`。烧录前应从本次 ELF 重新生成，避免把
+上一次构建的旧固件烧进芯片：
+
+```powershell
+$objcopy = "C:\ST\STM32CubeIDE_2.2.0\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.14.3.rel1.win32_1.0.100.202602081740\tools\bin\arm-none-eabi-objcopy.exe"
+& $objcopy -O ihex .\Release\acdc_halfbridge_f407.elf .\Release\acdc_halfbridge_f407.hex
+& $objcopy -O binary .\Release\acdc_halfbridge_f407.elf .\Release\acdc_halfbridge_f407.bin
 ```
 
 ## 8. 已知限制
