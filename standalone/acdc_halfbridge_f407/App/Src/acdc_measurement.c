@@ -9,7 +9,7 @@
 /*
  * 2025 现场已标定的通道直接复用：
  *   PA5 ADC1_IN5  = Iin，TA ±5.9 A 量程；
- *   PC4 ADC1_IN14 = Vdc，单极性 0~67.9 V。
+ *   PC4 ADC1_IN14 = Vdc，单极性；现场修正后 0..4031 码约 0..64.8 V。
  *
  * Vcf 只使用 PC5（ADC2_IN15，原 ACDC Vin 位置）这一路，前端改为
  * 高压端 48.4 kΩ、ADC 节点对地 1.9 kΩ 的电阻分压：
@@ -33,8 +33,8 @@ const AcdcCalibration g_acdc_cal_vcf = {
 };
 
 const AcdcCalibration g_acdc_cal_vdc = {
-    .offset_count = 4.5388f,
-    .gain = 0.016861944f,
+    .offset_count = ACDC_VDC_OFFSET_COUNT,
+    .gain = ACDC_VDC_GAIN_V_PER_CODE,
     .raw_min = 0U,
     .raw_max = 4031U,
 };

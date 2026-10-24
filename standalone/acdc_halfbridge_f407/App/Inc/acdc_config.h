@@ -22,8 +22,8 @@
 #define ACDC_DC_VOLTAGE_READY_TOLERANCE_V (3.0f)
 #define ACDC_DC_PRECHARGE_MIN_V (25.0f)
 #define ACDC_DC_RUN_MIN_V (30.0f)
-#define ACDC_DC_MAX_V (66.0f)
-#define ACDC_DC_START_MAX_V (64.0f)
+#define ACDC_DC_MAX_V (64.0f)
+#define ACDC_DC_START_MAX_V (63.0f)
 #define ACDC_VCF_RMS_MIN_V (10.0f)
 #define ACDC_VCF_INSTANT_MAX_V (65.0f)
 #define ACDC_IIN_ABS_MAX_A (5.6f)
@@ -48,6 +48,15 @@
 #define ACDC_ADC_FULL_CODE (4095.0f)
 #define ACDC_VCF_DIVIDER_RATIO (ACDC_VCF_DIVIDER_LOW_OHM / (ACDC_VCF_DIVIDER_LOW_OHM + ACDC_VCF_DIVIDER_HIGH_OHM))
 #define ACDC_VCF_GAIN_V_PER_CODE ((ACDC_ADC_REFERENCE_V / ACDC_ADC_FULL_CODE) / ACDC_VCF_DIVIDER_RATIO)
+
+/*
+ * PC4 母线通道现场两点修正。
+ * 实测母线 25.4 V 时旧标定显示 26.6 V；保持 offset 不变，仅缩放 gain：
+ *   raw = 26.6 / 0.016861944 + 4.5388 = 1582
+ *   new_gain = 25.4 / (1582 - 4.5388) = 0.016101255 V/code
+ */
+#define ACDC_VDC_OFFSET_COUNT (4.5388f)
+#define ACDC_VDC_GAIN_V_PER_CODE (0.016101255f)
 
 /* ── 控制器增益（与 host_tests/sim_input_current.c 一致） ─────────── */
 #define ACDC_BUS_PI_KP_A_PER_V (1.0f)

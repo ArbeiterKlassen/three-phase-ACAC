@@ -87,6 +87,17 @@ static void TestVcfDividerCalibration(void) {
     CHECK(m.vcf_v == 0.0f);
 }
 
+static void TestVdcBenchCalibration(void) {
+    uint32_t frame[ACDC_ADC_RANK_COUNT];
+    AcdcMeasurement m;
+
+    CHECK(fabsf(g_acdc_cal_vdc.gain - 0.016101255f) < 1.0e-8f);
+    MakeFrame(frame, 1.0f, 20.0f, 20.0f);
+    frame[3] = (frame[3] & 0xFFFF0000U) | 1582U;
+    CHECK(AcdcMeasurement_Convert(frame, &m));
+    CHECK(fabsf(m.vdc_v - 25.4f) < 0.03f);
+}
+
 static void TestControlWarmupAndRun(void) {
     AcdcControl control;
     AcdcControlConfig cfg = TestConfig();
@@ -230,6 +241,7 @@ static void TestStartupAdcGlitchDoesNotLatch(void) {
 int main(void) {
     TestMeasurement();
     TestVcfDividerCalibration();
+    TestVdcBenchCalibration();
     TestControlWarmupAndRun();
     TestApplicationStartAndProtection();
     TestUndervoltageTripsWithoutControlFault();
